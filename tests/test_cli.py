@@ -52,7 +52,6 @@ EXPECTED_WP = {
     ("posted",): "WP-15",
     ("sweep",): "WP-16",
     ("index", "rebuild"): "WP-06",
-    ("cost",): "WP-02",
 }
 
 
@@ -119,11 +118,51 @@ def test_doctor_exits_cleanly():
     assert "environment check" in result.output.lower()
 
 
+def test_cost_runs_with_no_ledger(tmp_path, monkeypatch):
+    """WP-02: `ce cost` on a project with no LLM spend yet must not crash."""
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["cost"])
+    assert result.exit_code == Exit.OK
+    assert "no calls recorded" in result.output.lower()
+
+
+def test_cost_prints_per_prompt_breakdown(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from ce.llm import ledger as ledger_mod
+
+    monkeypatch.chdir(tmp_path)
+    now = datetime.now(UTC)
+    ledger_mod.append(
+        tmp_path / "data" / "ledger.jsonl",
+        ledger_mod.LedgerRecord(
+            ts=now,
+            prompt="_wp02_echo",
+            version=1,
+            model="claude-haiku-4-5",
+            in_tokens=100,
+            out_tokens=50,
+            usd=0.0003,
+            cache_hit=False,
+        ),
+    )
+    result = runner.invoke(cli.app, ["cost"])
+    assert result.exit_code == Exit.OK
+    assert "_wp02_echo" in result.output
+    assert "1 calls" in result.output
+
+
 # --- exit code contract (TDD 9) --------------------------------------------
 
 
 def test_exit_code_values():
-    assert (Exit.OK, Exit.ERROR, Exit.GATE_BLOCKED, Exit.BUDGET_EXCEEDED, Exit.PRECONDITION) == (0, 1, 2, 3, 4)
+    assert (Exit.OK, Exit.ERROR, Exit.GATE_BLOCKED, Exit.BUDGET_EXCEEDED, Exit.PRECONDITION) == (
+        0,
+        1,
+        2,
+        3,
+        4,
+    )
 
 
 def test_gate_blocked_carries_gate_name():

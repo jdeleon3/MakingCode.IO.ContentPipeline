@@ -14,7 +14,6 @@ annotations have historically confused it for Optional/List parameters.
 """
 
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 
@@ -29,7 +28,9 @@ app = typer.Typer(
 )
 
 project_app = typer.Typer(help="Create and inspect projects.", no_args_is_help=True)
-capture_app = typer.Typer(help="Ingest audio, screenshots and friction notes.", no_args_is_help=True)
+capture_app = typer.Typer(
+    help="Ingest audio, screenshots and friction notes.", no_args_is_help=True
+)
 brief_app = typer.Typer(help="Inspect and select candidate briefs.", no_args_is_help=True)
 publish_app = typer.Typer(help="Publish to owned channels.", no_args_is_help=True)
 metrics_app = typer.Typer(help="Pull performance data.", no_args_is_help=True)
@@ -58,8 +59,10 @@ def _version_callback(value: bool) -> None:
 def main_callback(
     ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug output to stderr."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Describe actions without performing them."),
-    config: Optional[Path] = typer.Option(None, "--config", help="Path to engine.yml.", exists=False),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Describe actions without performing them."
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Path to engine.yml.", exists=False),
     _version: bool = typer.Option(
         False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
     ),
@@ -78,8 +81,10 @@ def main_callback(
 @project_app.command("new")
 def project_new(
     slug: str = typer.Argument(..., help="Immutable identifier, [a-z0-9-]+."),
-    title: Optional[str] = typer.Option(None, "--title"),
-    repo: Optional[List[Path]] = typer.Option(None, "--repo", help="Repeatable. Must be in the allowlist."),
+    title: str | None = typer.Option(None, "--title"),
+    repo: list[Path] | None = typer.Option(
+        None, "--repo", help="Repeatable. Must be in the allowlist."
+    ),
 ) -> None:
     """Create a project and scaffold its data directory."""
     raise NotImplementedYet("project new", "WP-03")
@@ -87,7 +92,7 @@ def project_new(
 
 @project_app.command("list")
 def project_list(
-    status: Optional[str] = typer.Option(None, "--status", help="active|harvested|complete|abandoned"),
+    status: str | None = typer.Option(None, "--status", help="active|harvested|complete|abandoned"),
 ) -> None:
     """List projects."""
     raise NotImplementedYet("project list", "WP-03")
@@ -102,7 +107,9 @@ def project_show(slug: str = typer.Argument(...)) -> None:
 @project_app.command("close")
 def project_close(
     slug: str = typer.Argument(...),
-    abandoned: bool = typer.Option(False, "--abandoned", help="Abandoned projects are still harvestable."),
+    abandoned: bool = typer.Option(
+        False, "--abandoned", help="Abandoned projects are still harvestable."
+    ),
 ) -> None:
     """Mark a project finished."""
     raise NotImplementedYet("project close", "WP-03")
@@ -116,9 +123,9 @@ def project_close(
 @capture_app.command("audio")
 def capture_audio(
     file: Path = typer.Argument(..., help="Audio file to ingest."),
-    project: Optional[str] = typer.Option(None, "--project", "-p"),
+    project: str | None = typer.Option(None, "--project", "-p"),
     moment: str = typer.Option("in_situ", "--moment", help="in_situ|retro"),
-    context: Optional[str] = typer.Option(None, "--context", help="One line: what was happening."),
+    context: str | None = typer.Option(None, "--context", help="One line: what was happening."),
 ) -> None:
     """Ingest and transcribe an audio capture."""
     raise NotImplementedYet("capture audio", "WP-04")
@@ -127,8 +134,8 @@ def capture_audio(
 @capture_app.command("screen")
 def capture_screen(
     file: Path = typer.Argument(...),
-    project: Optional[str] = typer.Option(None, "--project", "-p"),
-    context: Optional[str] = typer.Option(None, "--context"),
+    project: str | None = typer.Option(None, "--project", "-p"),
+    context: str | None = typer.Option(None, "--context"),
 ) -> None:
     """Ingest a screenshot or screencast."""
     raise NotImplementedYet("capture screen", "WP-04")
@@ -137,7 +144,7 @@ def capture_screen(
 @capture_app.command("friction")
 def capture_friction(
     note: str = typer.Argument(..., help="One line, written the moment something surprised you."),
-    project: Optional[str] = typer.Option(None, "--project", "-p"),
+    project: str | None = typer.Option(None, "--project", "-p"),
 ) -> None:
     """Append a timestamped line to friction.md."""
     raise NotImplementedYet("capture friction", "WP-04")
@@ -175,7 +182,9 @@ def harvest(
 @brief_app.command("list")
 def brief_list(
     project: str = typer.Argument(...),
-    status: Optional[str] = typer.Option(None, "--status", help="candidate|selected|produced|published|dropped"),
+    status: str | None = typer.Option(
+        None, "--status", help="candidate|selected|produced|published|dropped"
+    ),
 ) -> None:
     """List candidate briefs."""
     raise NotImplementedYet("brief list", "WP-08")
@@ -214,7 +223,7 @@ def verify(
 @app.command("assets")
 def assets(
     piece_id: str = typer.Argument(...),
-    only: Optional[str] = typer.Option(None, "--only", help="diagram|codecard|thumbnail|hero"),
+    only: str | None = typer.Option(None, "--only", help="diagram|codecard|thumbnail|hero"),
 ) -> None:
     """Render diagrams, code cards and thumbnails."""
     raise NotImplementedYet("assets", "WP-11")
@@ -223,7 +232,9 @@ def assets(
 @app.command("render")
 def render(
     piece_id: str = typer.Argument(...),
-    platform: Optional[List[str]] = typer.Option(None, "--platform", help="Repeatable. Default: all configured."),
+    platform: list[str] | None = typer.Option(
+        None, "--platform", help="Repeatable. Default: all configured."
+    ),
 ) -> None:
     """Adapt the article into per-platform renditions."""
     raise NotImplementedYet("render", "WP-12")
@@ -261,7 +272,7 @@ def posted(
 
 @metrics_app.command("pull")
 def metrics_pull(
-    since: Optional[str] = typer.Option(None, "--since", help="YYYY-MM-DD"),
+    since: str | None = typer.Option(None, "--since", help="YYYY-MM-DD"),
 ) -> None:
     """Fetch site, YouTube and Facebook metrics into posted.yml."""
     raise NotImplementedYet("metrics pull", "WP-15")
@@ -288,15 +299,35 @@ def index_rebuild() -> None:
 
 @app.command("cost")
 def cost(
-    month: Optional[str] = typer.Option(None, "--month", help="YYYY-MM. Default: current month."),
+    month: str | None = typer.Option(None, "--month", help="YYYY-MM. Default: current month."),
 ) -> None:
     """Summarise LLM spend from data/ledger.jsonl."""
-    raise NotImplementedYet("cost", "WP-02")
+    from ce.llm import ledger as ledger_mod
+
+    data_root = Path("data")
+    records = ledger_mod.read_all(data_root / "ledger.jsonl")
+    breakdown = ledger_mod.per_prompt_breakdown(records, month)
+    label = month or ledger_mod.current_month()
+
+    console.heading(f"LLM cost - {label}")
+    if not breakdown:
+        console.out("  (no calls recorded)")
+    else:
+        width = max(len(s.prompt) for s in breakdown)
+        for s in breakdown:
+            console.out(
+                f"  {s.prompt.ljust(width)}  {s.calls:>3} calls"
+                f"  {s.in_tokens:>8} in  {s.out_tokens:>8} out  ${s.usd:.4f}"
+            )
+    console.out()
+    console.out(f"  total: ${sum(s.usd for s in breakdown):.4f}")
 
 
 @app.command("doctor")
 def doctor_cmd(
-    strict: bool = typer.Option(False, "--strict", help="Treat not-yet-needed dependencies as required."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Treat not-yet-needed dependencies as required."
+    ),
 ) -> None:
     """Verify the local environment."""
     from ce import doctor

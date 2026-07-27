@@ -76,6 +76,28 @@ class ConfigError(CEError):
     exit_code = Exit.ERROR
 
 
+class PromptError(CEError):
+    """A `prompts/<id>.md` file failed to load or render (TDD 10.1, ADR-004).
+
+    Covers missing files, malformed frontmatter, and Jinja2 `StrictUndefined`
+    errors — a template referencing a var the caller didn't supply is a bug
+    in the caller, not a silently blank section sent to a paid API call.
+    """
+
+    exit_code = Exit.ERROR
+
+
+class SchemaValidationError(CEError):
+    """An LLM response failed `output_schema` validation after one repair
+    attempt (TDD 10.1 step 6).
+
+    The gateway always retries once with the validation error appended
+    before raising this — by the time it's raised, a retry already happened.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

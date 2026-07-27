@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-01
+**Last session:** 2026-07-27 — completed WP-02
 
 ---
 
@@ -24,8 +24,8 @@
 |----|------|--------|-------|
 | WP-00 | Scaffold, CLI skeleton, doctor | ✅ done | 62 tests passing |
 | WP-01 | Config, models, store | ✅ done | 100 tests passing (38 new) |
-| WP-02 | LLM gateway | 🔵 **next** | flip `ANTHROPIC_API_KEY` to required in `doctor.py` |
-| WP-03 | Project lifecycle | ⬜ | |
+| WP-02 | LLM gateway | ✅ done | 131 tests passing (31 new); `ANTHROPIC_API_KEY` now required in `doctor.py` |
+| WP-03 | Project lifecycle | 🔵 **next** | |
 | WP-04 | Capture & transcription | ⬜ | flip `ffmpeg`, `OPENAI_API_KEY` to required |
 | WP-05 | Git harvest & safety gates ⚠️ | ⬜ | flip `gitleaks` to required. Planted-secret test is mandatory. |
 | WP-06 | Index & dedupe | ⬜ | |
@@ -45,6 +45,53 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-02 · `gateway.complete()` is a method on a `Gateway` class, not the bare
+  function TDD 10.1 pseudocode shows.** Every other module (`store.py`,
+  `config.py`) is explicit-args with no hidden globals; a bare
+  `complete(prompt_id, vars, ...)` would need config/paths and the per-run
+  spend accumulator (TDD 6.5 "per-run cap likewise") to live somewhere, and
+  a module-level global was the only alternative. `Gateway(config,
+  data_root=..., client=...)` carries all three explicitly instead.
+
+- **WP-02 · provider calls go through a hand-rolled `httpx` POST
+  (`llm/gateway.AnthropicClient`), not the `anthropic` SDK.** `httpx` is
+  already a dependency for everything else in this repo; the Messages API
+  is one POST + one retry loop, not enough surface to justify adding the
+  SDK as a dependency. `Gateway` takes any object satisfying the
+  `LLMClient` protocol via dependency injection.
+
+- **WP-02 · test determinism via a fake `LLMClient`, not a pre-primed
+  `tests/fixtures/llm-cache/` + `pytest --refresh-llm-cache` flag (TDD
+  §13).** The DI seam that already exists for the httpx-vs-SDK deviation
+  above makes a fake client injectable at zero extra cost — tests build a
+  `Gateway` with a canned-response fake and assert call counts directly,
+  with zero network calls and zero cache-fixture maintenance. The real
+  `AnthropicClient` is exercised only by manual/integration use, not by the
+  test suite. Revisit if a later WP needs to exercise real committed
+  cache-file fixtures (e.g. golden-file testing on actual model output).
+
+- **WP-02 · cache check runs before the budget check, not after (TDD 10.1
+  lists budget as step 4, cache as step 3, which already matches — but the
+  budget check can degrade the tier/model, and the cache key must reflect
+  whichever model actually gets billed).** `Gateway.complete()` checks the
+  cache using the *nominal* (pre-degrade) model first — a cache hit is free
+  and must not be blockable by a budget that only a real call would trip.
+  On a miss, the budget check runs and may degrade the tier; if that
+  changes the model, the cache key is recomputed before the provider call
+  and again before the write. A cache entry written under a prior
+  *degraded* run is not re-checked at that point — an accepted gap, since
+  `on_exceed: degrade` is not the default and revisiting it costs a second
+  cache read on every miss for no benefit in the common (`halt`) case.
+
+- **WP-02 · fixed `ruff check` lint debt in `cli.py` (17 pre-existing
+  `Optional[X]`/`List[X]` → `X | None`/`list[X]` findings from WP-00), not
+  introduced by this WP but blocking a clean `ruff check` on the repo.**
+  Mechanical, `ruff check --fix`-only change, verified against the full
+  test suite (all CLI command `--help` invocations still resolve — Typer
+  handles `X | None` fine at runtime; the module's existing note against
+  `from __future__ import annotations` is about postponed evaluation, not
+  this syntax).
 
 - **WP-01 · `ce project show` built as read/format logic in `store.py`, not
   wired into the CLI.** TDD 12's WP-01 Done-when line names `ce project show`

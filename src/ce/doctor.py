@@ -10,7 +10,7 @@ tools you will not touch for another three sessions.
 WHEN YOU IMPLEMENT A WORK PACKAGE, flip its dependencies to required=True.
 The table below is the single place to do that.
 
-    WP-02  ANTHROPIC_API_KEY
+    WP-02  ANTHROPIC_API_KEY (done)
     WP-04  ffmpeg, OPENAI_API_KEY
     WP-05  gitleaks
     WP-11  mermaid-cli, playwright + chromium
@@ -157,7 +157,7 @@ CHECKS: list[Check] = [
     Check(
         name="ANTHROPIC_API_KEY",
         probe=_check_env("ANTHROPIC_API_KEY"),
-        required=False,
+        required=True,
         needed_for="WP-02",
         install="setx ANTHROPIC_API_KEY sk-ant-...  (then open a new terminal)",
     ),
@@ -223,13 +223,17 @@ def run(strict: bool = False) -> int:
         label = check.name.ljust(width)
 
         if result.ok:
-            console.out(f"  {console.paint(console.OK, 'green')} {label}  {console.paint(result.detail, 'dim')}")
+            console.out(
+                f"  {console.paint(console.OK, 'green')} {label}  {console.paint(result.detail, 'dim')}"
+            )
         elif is_required:
             console.out(f"  {console.paint(console.FAIL, 'red')} {label}  {result.detail}")
             missing_required.append(check)
         else:
             note = f"{result.detail}  (needed for {check.needed_for})"
-            console.out(f"  {console.paint(console.WARN, 'yellow')} {label}  {console.paint(note, 'dim')}")
+            console.out(
+                f"  {console.paint(console.WARN, 'yellow')} {label}  {console.paint(note, 'dim')}"
+            )
             missing_pending.append(check)
 
     console.out()
