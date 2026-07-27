@@ -1,0 +1,43 @@
+# --- Content Engine specific (TDD 14: Backup) -------------------------------
+# Derived / rebuildable
+data/index.db
+data/.llm-cache/
+data/runs/
+
+# The deliverable - regenerated per piece, never committed
+outbox/
+
+# Media: large, and does not belong in git. Back up separately.
+*.m4a
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.mkv
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# --- Editors / OS ------------------------------------------------------------
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

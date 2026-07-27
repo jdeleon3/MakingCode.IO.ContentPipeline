@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest*)",
+      "Bash(ruff check*)",
+      "Bash(ruff format*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(ce doctor*)",
+      "Bash(ce --help*)",
+      "PowerShell(pytest*)",
+      "PowerShell(ruff check*)",
+      "PowerShell(ruff format*)",
+      "PowerShell(git status*)",
+      "PowerShell(git diff*)",
+      "PowerShell(git log*)",
+      "PowerShell(git add*)",
+      "PowerShell(ce doctor*)",
+      "PowerShell(ce --help*)"
+    ],
+    "ask": [
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git reset*)",
+      "Bash(git checkout*)",
+      "Bash(git clean*)",
+      "Bash(git branch -D*)",
+      "Bash(pip install*)",
+      "Bash(pip uninstall*)",
+      "Bash(rm*)",
+      "PowerShell(git commit*)",
+      "PowerShell(git push*)",
+      "PowerShell(git reset*)",
+      "PowerShell(git checkout*)",
+      "PowerShell(git clean*)",
+      "PowerShell(git branch -D*)",
+      "PowerShell(pip install*)",
+      "PowerShell(pip uninstall*)",
+      "PowerShell(Remove-Item*)"
+    ]
+  }
+}

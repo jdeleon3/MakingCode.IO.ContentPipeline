@@ -1,0 +1,14 @@
+# Normalise line endings. Developed on Windows; keep the repo LF-clean.
+* text=auto eol=lf
+
+# Binary assets - never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.m4a binary
+*.mp3 binary
+*.wav binary
+*.mp4 binary
+*.mov binary
+*.db  binary
