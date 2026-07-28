@@ -139,6 +139,8 @@ These bound every design decision. Revisit the design if any is exceeded by 10×
 
 **Every stage is a CLI invocation the operator runs deliberately.** There is no daemon, no scheduler, no server. This is a direct consequence of §2.5 — at one project per fortnight, unattended execution solves a problem that does not exist, and would add a VPS, process supervision, and failure alerting for zero benefit.
 
+The optional local GUI (ADR-009) does not change this: it is a thin, operator-launched wrapper over the same CLI invocations, not a background service, and it has no existence when not explicitly running.
+
 Each stage is **idempotent and resumable**: it writes a `_manifest.json` recording an input hash; re-running with unchanged inputs is a no-op unless `--force`.
 
 ### 3.3 Component map
@@ -214,6 +216,12 @@ Recorded as ADRs so future sessions know what is settled and what is open.
 **Decision:** `ce produce` stops after generating `article.md` and exits with instructions. Publishing requires a separate `ce publish` invocation that refuses to run unless `article.md` mtime is newer than its generation timestamp.
 **Rationale:** The quality difference between edited and unedited AI drafts is the whole ballgame. Making it structurally impossible to skip is worth the friction.
 **Consequences:** Overridable with `--no-edit-check` for testing only.
+
+### ADR-009 — On-demand local web GUI, not a daemon
+**Decision:** `ce gui` starts a FastAPI/Uvicorn server bound to `127.0.0.1` only, for as long as the operator has it open. No scheduled task, no background service, no process that outlives the operator closing it.
+**Rationale:** §3.2's "no daemon, no scheduler, no server" ruled out *unattended* execution, not a locally-launched, operator-present convenience surface — the GUI still requires the operator to launch it, and every action it takes shells out to the same `ce` CLI commands (§9) a human would type, so every safety gate (§6) and the ADR-008 edit check still run exactly as they would from a terminal. §15 originally deferred a web UI until "REVIEW.html + CLI proves insufficient after 10 published pieces" — overridden 2026-07-28, before that trigger fired (zero pieces published at the time), by explicit operator decision after being walked through the tradeoff. See STATUS.md deviations.
+**Consequences:** Two new optional dependencies, `fastapi` and `uvicorn`, under `[project.optional-dependencies].gui` — same "optional extra" shape as WP-11's `playwright` (`pip install` alone doesn't make the pipeline itself need a running server). No authentication: binding to loopback only is the entire security model, matching this repo's existing "single operator, single machine" scale assumption (§2.5). The GUI must never become the only way to do something — every screen is a thin wrapper over an existing CLI command; the CLI stays fully functional with the GUI never installed.
+**Reversible:** Yes — deleting `src/ce/gui/` and the `gui` extra fully removes it. Nothing outside `gui/` depends on it (the GUI depends on the CLI/store, never the reverse).
 
 ---
 
@@ -477,9 +485,15 @@ content-engine/
 │  ├─ sweep/
 │  │  ├─ hn.py
 │  │  └─ rss.py
-│  └─ metrics/
-│     ├─ umami.py
-│     └─ youtube.py
+│  ├─ metrics/
+│  │  ├─ umami.py
+│  │  └─ youtube.py
+│  └─ gui/                        ← §10.10, ADR-009 — optional, `pip install ce[gui]`
+│     ├─ app.py                   ← FastAPI app factory, `ce gui` entry point
+│     ├─ runner.py                ← shells out to `ce`, tails its §14 run log
+│     ├─ routes/                  ← one module per screen
+│     ├─ templates/                ← Jinja2, server-rendered, HTMX partials
+│     └─ static/                  ← vendored htmx.js + CSS, no CDN
 │
 ├─ data/                          ← §5.4
 │  ├─ projects/<slug>/
@@ -662,6 +676,8 @@ ce sweep [--sources hn,rss]
 ce index rebuild
 ce cost [--month YYYY-MM]
 ce doctor                             → verify env: ffmpeg, gitleaks, playwright, keys
+
+ce gui [--port 8420]                  → localhost web dashboard, §10.10 / ADR-009
 ```
 
 **Global flags:** `--verbose`, `--dry-run`, `--config PATH`
@@ -860,6 +876,40 @@ Single self-contained HTML file (ADR-006). Inlined CSS/JS. Images referenced by 
 7. Fetch and assert `og:title`, `og:description`, `og:image` are present and non-empty. **This must pass before renditions are packaged**, because Facebook caches its first scrape.
 8. Write `piece.published.url`.
 
+### 10.10 `gui/` — local web dashboard (ADR-009)
+
+FastAPI + Jinja2 + HTMX, server-rendered. No Node/npm build step, no SPA framework, no CDN — `static/` vendors htmx.js so the GUI works offline like everything else in this repo. Binds `127.0.0.1` only; no authentication (§2.5 single-operator scale, same trust boundary as running the CLI itself).
+
+**Hard rule the whole module follows:** the GUI never imports pipeline modules (`harvest/`, `produce/`, `gates/`, ...) and never reimplements their logic. Every action is either (a) a **read** of a file `store.py` already knows how to read, or (b) a **write** to the exact file the CLI would write, or (c) a subprocess invocation of the real `ce` entry point. This is what keeps the GUI from drifting out of sync with the CLI it wraps — there is exactly one implementation of "what harvest does," and the GUI is never it.
+
+```python
+# runner.py
+def run_command(args: list[str], *, cwd: Path) -> RunHandle
+def stream_run(run_id: str) -> Iterator[RunEvent]   # tails the §14 run log
+```
+
+`run_command` launches `["ce", *args]` as a subprocess (never an in-process import) and returns immediately with the run's log path (§14: every run already writes `data/runs/<ts>-<command>.log`). `stream_run` tails that file over Server-Sent Events rather than piping the subprocess's stdout directly — a run keeps executing if the browser tab is closed, and reloading the page mid-run (or after it finished) replays the same log from the top instead of showing a blank console. `RunEvent = {line: str} | {done: True, exit_code: int}`.
+
+**Screens** (routes/, one module each):
+
+| Route | Reads | Writes | Runs |
+|---|---|---|---|
+| `/` dashboard | every `project.yml` | — | — |
+| `/projects/<slug>` | project + capture/harvest/piece counts | — | — |
+| `/projects/<slug>/briefs` | `briefs.yml`, `inventory.md` | — | `ce brief select` |
+| `/pieces/<id>` | `article.md`, `grades.json`, `verification.json` | `article.md` | `ce verify`, `ce assets`, `ce render` |
+| `/pieces/<id>/renditions` | `renditions/*.yml`, `assets/`, `outbox/<id>/REVIEW.html` | `renditions/*.yml` | `ce package`, `ce publish site`, `ce posted` |
+| `/runs` | `data/runs/*.log` | — | any §9 command |
+| `/doctor` | — | — | `ce doctor` |
+
+**Editing.** `article.md` and `renditions/*.yml` textareas save by writing the file directly at its normal path — indistinguishable from a manual edit made in a text editor. This is deliberate: ADR-008's edit check compares `article.md`'s mtime to `piece.generated_at`, and a GUI save must satisfy it the same way a manual edit does, with no special-cased bypass.
+
+**Mechanical validation shown live** (character counters, URL-in-body checks) reuses the exact constants `produce/renditions.py`'s own §10.6 validation reads from `config/platforms/<p>.yml` — never a second hardcoded copy of `max_chars`/`hook_chars`.
+
+**Confirm-gated actions.** Any action that reaches outside this machine — `ce publish site` (git push to `identity.site_repo`) — requires an explicit confirmation step in the UI before the run is submitted, on top of whatever the CLI itself already checks (`--dry-run`, the edit check, OG-tag assertion). `ce posted` (recording a URL after manual posting) is not confirm-gated — it writes local data only, nothing leaves the machine.
+
+**REVIEW.html stays authoritative.** The renditions screen's "package preview" embeds the real `outbox/<id>/REVIEW.html` an actual `ce package` run produced (an `<iframe>` over the file, or an equivalent fetch-and-inline), never a GUI-side reimplementation of §10.8's layout — one canonical review artifact, viewable from two places.
+
 ---
 
 ## §11 Prompt contracts
@@ -1012,6 +1062,40 @@ Legend: **D** = depends on.
 
 ---
 
+**GUI work packages (ADR-009).** Added 2026-07-28, after all 16 original WPs closed — see STATUS.md deviations for why the §15 "after 10 published pieces" trigger was overridden rather than waited on. Same one-WP-per-session discipline; each Build/Done-when below follows the same rigor as WP-00–16.
+
+### WP-17 — GUI scaffold, process runner, doctor screen
+**D:** WP-16
+**Build:** `[project.optional-dependencies].gui` (`fastapi`, `uvicorn`). `src/ce/gui/app.py`, `runner.py` (§10.10). `ce gui [--port 8420]` — starts the server bound to `127.0.0.1` and best-effort opens the default browser. Base Jinja2 layout + vendored `static/htmx.min.js` (no CDN, per ADR-006's "no network" spirit applied here too). `/doctor` screen: triggers a real `ce doctor` run through `runner.py` and streams its output.
+**Done when:** `ce gui` serves on `127.0.0.1` only; `/doctor` streams real `ce doctor` output line-by-line and shows the correct exit code; reloading `/doctor` mid-run resumes from the tailed log rather than blanking; `ce --help` still runs unmodified (repo-wide invariant); stopping the GUI process leaves no orphaned `ce doctor` child process.
+
+### WP-18 — Project dashboard
+**D:** WP-17
+**Build:** `gui/routes/dashboard.py` — `/` lists every project (`store.py`'s existing read helpers over `data/projects/*/project.yml`) with status; `/projects/<slug>` rolls up capture/harvest/brief/piece counts.
+**Done when:** the dashboard lists every project on disk with the correct status; a fixture project's detail page shows accurate counts at every stage; a project with no harvest yet renders a clear "not harvested" state, not an error or a blank section.
+
+### WP-19 — Pipeline run/log console
+**D:** WP-17
+**Build:** `gui/routes/runs.py` — `/runs`: pick any §9 stage command for a project/piece id, submit, watch its real subprocess output stream live via `runner.py`. Actions reaching outside this machine (`ce publish site`, anything that ends in `git push`) require an explicit confirm step before submission.
+**Done when:** triggering `ce doctor` from `/runs` shows live output and the real exit code; a gate-blocked run (exit code 2) is visibly distinguished from success, not shown as a silent pass; `publish site` cannot be submitted without the confirm step; closing the browser tab mid-run does not kill the subprocess, and reopening `/runs/<run-id>` replays the same log (§10.10's tail-the-log-file design, not direct stdout piping).
+
+### WP-20 — Brief review & selection
+**D:** WP-18, WP-19
+**Build:** `gui/routes/briefs.py` — `/projects/<slug>/briefs`: list from `briefs.yml`/`inventory.md` with archetype, recurrence/demand, evidence, dedupe score, risk flags; "Select" shells to `ce brief select <brief-id>` via WP-19's runner and redirects to the resulting piece.
+**Done when:** a `dropped`/weak brief's Select control is disabled in the UI itself, not just rejected after a click (matches WP-08's `assert_selectable`); selecting a real candidate creates a `Piece` and lands on WP-21's review page; a dedupe collision is surfaced with the colliding piece named, matching what `ce brief select` itself reports on the CLI.
+
+### WP-21 — Article & grade review
+**D:** WP-19
+**Build:** `gui/routes/pieces.py` — `/pieces/<id>`: `article.md` in an editable textarea saving straight back to that file; full `grades.json` attempt history with per-dimension scores and `top_fixes`; `verification.json` results once run; buttons to trigger `verify`/`assets`/`render` via WP-19.
+**Done when:** editing and saving `article.md` in the GUI bumps its mtime past `piece.generated_at` exactly like a manual edit — `ce verify`'s ADR-008 edit check passes afterward with zero special-casing; grade history renders every attempt in order; a not-yet-verified piece clearly states that, rather than showing a blank or misleading verification section.
+
+### WP-22 — Rendition editing & package preview
+**D:** WP-19, WP-21
+**Build:** `gui/routes/renditions.py` — `/pieces/<id>/renditions`: per-platform `renditions/*.yml` view with editable body/first-comment/title/chapters textareas saving back to the same file; live character counters reading the same `config/platforms/<p>.yml` numbers §10.6's mechanical validation uses; asset previews; an embedded view of the real `outbox/<id>/REVIEW.html` once `ce package` has run; confirm-gated `publish site`/`ce posted` triggers.
+**Done when:** the character counter turns red past the platform's actual `max_chars` (same constant `renditions.py` validates against, not a second hardcoded copy); saving an edited rendition writes to the file the CLI reads, and a subsequent `ce package` run reflects the edit; the package preview shows the literal `REVIEW.html` `ce package` produced, not a GUI-side reimplementation of §10.8.
+
+---
+
 ### 12.1 Dependency graph
 
 ```
@@ -1021,11 +1105,17 @@ WP-00 ─┬─ WP-01 ─┬─ WP-02 ─┬─ WP-04 ─┐
        │                   WP-07 ────┘                     ├─ WP-11 ─┬─ WP-13 ┴─ WP-15
        │                                                   └─ WP-12 ─┘
        └────────────────────────────────── WP-16 (independent after WP-02)
+
+All 16 above ── WP-17 ─┬─ WP-18 ─────────┐
+                       └─ WP-19 ─┬───────┼─ WP-20
+                                 └─ WP-21 ── WP-22
 ```
 
-**Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13. Everything else can slip.
+**Critical path (original 16):** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13. Everything else can slip.
 
 **Minimum useful system:** WP-00 through WP-09, publishing by hand. WP-13 is the next-biggest quality-of-life win.
+
+**GUI critical path:** 17 → 19 → 21 → 22 (the edit/review/package loop). WP-18 and WP-20 (dashboard, brief selection) can slip behind it without blocking the review workflow.
 
 ---
 
@@ -1073,7 +1163,7 @@ Explicitly not building. Revisit only if the trigger fires.
 | n8n / scheduler / VPS | ≥3 pieces/week, or wanting unattended morning metrics |
 | Vector database | Corpus >10,000 pieces (ADR-003) |
 | Postgres | Multi-user, or concurrent runs |
-| Web UI | If `REVIEW.html` + CLI proves insufficient after 10 published pieces |
+| ~~Web UI~~ | Superseded 2026-07-28 — built as WP-17–WP-22 (ADR-009, §10.10) ahead of the original "after 10 published pieces" trigger, by explicit operator decision. See STATUS.md deviations. |
 | Multi-tenant / client work | Different product |
 | AI avatar video | Screen capture proves inadequate — unlikely (v3 §4) |
 | Automated screenshot secret-scanning | If a viable OCR+entropy approach emerges; currently manual (§6.2) |

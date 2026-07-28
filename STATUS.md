@@ -2,7 +2,9 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-16 (all 16 work packages now done)
+**Last session:** 2026-07-28 — completed WP-16 (all 16 original work packages done);
+same-day follow-up session designed the GUI (ADR-009, TDD §10.10) and added
+WP-17–WP-22 below. No WP implemented yet this follow-up session — design only.
 
 ---
 
@@ -39,12 +41,50 @@
 | WP-14 | Site publish | ✅ done | 421 tests passing (27 new) |
 | WP-15 | Post-back & metrics | ✅ done | 449 tests passing (28 new); `UMAMI_API_KEY`/`YOUTUBE_API_KEY` now required in `doctor.py` |
 | WP-16 | Trend sweep | ✅ done | 460 tests passing (12 new), 1 skipped (`EXPECTED_WP` in `test_cli.py` is now empty -- every stub is built); no new doctor entry, neither source needs auth |
+| WP-17 | GUI scaffold, process runner, doctor screen | 🔵 next | |
+| WP-18 | Project dashboard | ⬜ | |
+| WP-19 | Pipeline run/log console | ⬜ | |
+| WP-20 | Brief review & selection | ⬜ | |
+| WP-21 | Article & grade review | ⬜ | |
+| WP-22 | Rendition editing & package preview | ⬜ | |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
+**GUI critical path:** 17 → 19 → 21 → 22 (18, 20 can slip)
 
 ---
 
 ## Deviations from the TDD
+
+- **GUI (pre-WP-17) · §15's "Web UI" out-of-scope trigger ("after 10
+  published pieces") was overridden before it fired.** `data/posted.yml`
+  doesn't exist and no project has any `pieces/` yet — checked directly
+  this session, not assumed. Raised explicitly to the operator before any
+  design work started; the operator chose to proceed anyway (full
+  operator dashboard, not just a REVIEW.html replacement) and asked for it
+  recorded as a deviation rather than silently building around the
+  original trigger. New ADR-009 (`docs/TDD-content-engine.md`) documents
+  the resulting architecture decision (on-demand local FastAPI/HTMX
+  server, `127.0.0.1`-only, no daemon, shells out to the real `ce` CLI for
+  every action) and its own rationale; §10.10 is the full component spec;
+  WP-17–WP-22 (table above) are the new work packages, same one-WP-per-
+  session discipline as WP-00–16. This session did design only — no code
+  written yet, WP-17 is next.
+- **GUI scope, chosen via interview this session** (recorded here since
+  none of it is derivable from code that doesn't exist yet): full operator
+  dashboard covering the whole pipeline, not just a review/approval layer;
+  local web app (`ce gui`) over a desktop app or TUI; drives the pipeline
+  by shelling out to the existing tested CLI, never by importing pipeline
+  modules in-process; live log streaming for long-running stages, tailing
+  the run log every command already writes per §14 rather than piping
+  subprocess stdout directly (survives a closed browser tab); article text
+  and per-platform rendition copy are editable in-GUI with save-back to
+  the same files the CLI reads/writes (ADR-008's mtime-based edit check
+  keeps working unmodified, no special-casing); localhost-only, no
+  authentication; explicit confirm dialogs on any action that reaches
+  outside this machine (`ce publish site`'s git push). Metrics/trend-sweep
+  dashboards and a project-creation/capture wizard were considered and
+  deliberately left out of this v1 scope — revisit after WP-22 if the CLI
+  for those still feels like the more natural surface.
 
 - **WP-16 · no component-spec section exists anywhere in the TDD for this
   WP at all** — not just a missing §10.10 (WP-15's gap): §10 stops at 10.9
