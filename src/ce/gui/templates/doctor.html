@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Doctor - Content Engine{% endblock %}
+{% block content %}
+  <h1>Environment check</h1>
+  <p>Runs the real <code>ce doctor</code> as a subprocess and streams its output below.</p>
+
+  <p>
+    <button id="run-btn" onclick="startRun()">Run ce doctor</button>
+    <span id="status"></span>
+  </p>
+
+  <pre class="console" id="console"></pre>
+
+  <script>
+    // Plain EventSource, not htmx: htmx has no built-in SSE support without
+    // vendoring a second extension file (htmx-ext-sse), and this one screen's
+    // "tail a log live" behavior is exactly what the native browser API is
+    // for. htmx (vendored in base.html) is for the GUI's page/partial
+    // navigation elsewhere, not duplicated here for its own sake.
+    const consoleEl = document.getElementById("console");
+    const statusEl = document.getElementById("status");
+    const runBtn = document.getElementById("run-btn");
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = "status " + cls;
+    }
+
+    function connect(runId) {
+      runBtn.disabled = true;
+      consoleEl.textContent = "";
+      setStatus("running…", "status-running");
+
+      const src = new EventSource(`/doctor/stream/${runId}`);
+      src.onmessage = (evt) => {
+        const data = JSON.parse(evt.data);
+        if ("line" in data) {
+          consoleEl.textContent += data.line + "\n";
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        if (data.done) {
+          src.close();
+          runBtn.disabled = false;
+          if (data.exit_code === 0) {
+            setStatus("passed (exit 0)", "status-ok");
+          } else {
+            setStatus(`failed (exit ${data.exit_code})`, "status-fail");
+          }
+        }
+      };
+      src.onerror = () => {
+        src.close();
+        runBtn.disabled = false;
+      };
+    }
+
+    function startRun() {
+      fetch("/doctor/run", { method: "POST" })
+        .then((r) => r.json())
+        .then((data) => {
+          const url = new URL(window.location);
+          url.searchParams.set("run", data.run_id);
+          history.replaceState(null, "", url);
+          connect(data.run_id);
+        });
+    }
+
+    {% if run_id %}
+    // A reload mid-run (or after one finished) lands here with ?run=<id> --
+    // reconnect to the same log instead of leaving the console blank.
+    connect("{{ run_id }}");
+    {% endif %}
+  </script>
+{% endblock %}

@@ -2,9 +2,11 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-16 (all 16 original work packages done);
-same-day follow-up session designed the GUI (ADR-009, TDD §10.10) and added
-WP-17–WP-22 below. No WP implemented yet this follow-up session — design only.
+**Last session:** 2026-07-28 — completed WP-17 (GUI scaffold, process runner,
+doctor screen): `ce gui`, `src/ce/gui/` (`app.py`, `runner.py`,
+`routes/doctor.py`), vendored `htmx.min.js`, and a new cross-cutting
+`ce/run_log.py` every invocation now goes through. Same day as the WP-16
+close and the GUI design session that added WP-17–WP-22.
 
 ---
 
@@ -41,8 +43,8 @@ WP-17–WP-22 below. No WP implemented yet this follow-up session — design onl
 | WP-14 | Site publish | ✅ done | 421 tests passing (27 new) |
 | WP-15 | Post-back & metrics | ✅ done | 449 tests passing (28 new); `UMAMI_API_KEY`/`YOUTUBE_API_KEY` now required in `doctor.py` |
 | WP-16 | Trend sweep | ✅ done | 460 tests passing (12 new), 1 skipped (`EXPECTED_WP` in `test_cli.py` is now empty -- every stub is built); no new doctor entry, neither source needs auth |
-| WP-17 | GUI scaffold, process runner, doctor screen | 🔵 next | |
-| WP-18 | Project dashboard | ⬜ | |
+| WP-17 | GUI scaffold, process runner, doctor screen | ✅ done | 473 tests passing (13 new), 1 skipped (pre-existing); new `gui` optional-dependency group (`fastapi`, `uvicorn`); no new `doctor.py` entry |
+| WP-18 | Project dashboard | 🔵 next | |
 | WP-19 | Pipeline run/log console | ⬜ | |
 | WP-20 | Brief review & selection | ⬜ | |
 | WP-21 | Article & grade review | ⬜ | |
@@ -54,6 +56,71 @@ WP-17–WP-22 below. No WP implemented yet this follow-up session — design onl
 ---
 
 ## Deviations from the TDD
+
+- **WP-17 · TDD §14's "every run writes `data/runs/<ts>-<command>.log`" had
+  never actually been built by any prior WP, despite being described as an
+  existing, system-wide behavior** — no logging module, no `data/runs/`
+  writer anywhere in the codebase before this session (confirmed by
+  grepping the whole `src/` tree). WP-17 is the first WP whose own
+  Done-when line genuinely depends on that log existing (`gui/runner.py`
+  tails it), so it's built now: a new `ce/run_log.py` teeing `sys.stdout`/
+  `sys.stderr` to `data/runs/<run-id>-<command>.log` for the duration of
+  `cli.main()`'s call into the Typer app — wired in for **every**
+  invocation, not just GUI-triggered ones, matching §14's literal
+  "every run" wording rather than scoping it to the GUI alone. ANSI colour
+  codes (`console.py`'s `paint()` output) are stripped from the log copy
+  but left intact on the real terminal stream, since the log is meant to be
+  plain text a browser can render directly, not a terminal transcript.
+  `CE_RUN_ID` is an environment variable `gui/runner.py` sets before
+  launching a subprocess so the parent can predict the exact log path the
+  child will write to without racing it or duplicating `run_log.py`'s own
+  filename logic; a bare terminal invocation has no such variable set and
+  `run_log.tee` generates a fresh id itself, so direct CLI use gets a log
+  with zero GUI involvement. Confirmed working end-to-end by running
+  `ce doctor` directly in a scratch directory this session and inspecting
+  the resulting log file, not just via the automated test suite.
+
+- **WP-17 · `gui/runner.py::run_command` launches
+  `[sys.executable, "-m", "ce.cli", *args]`, not the literal `["ce", *args]`
+  shown in TDD 10.10's pseudocode.** A bare `"ce"` depends on the installed
+  console-script's directory being on PATH inside whatever process
+  environment `ce gui` itself happens to be running in, which isn't
+  guaranteed (e.g. a venv invoked via its full interpreter path without
+  ever being "activated"). `sys.executable -m ce.cli` resolves
+  deterministically regardless of PATH state while still being a genuine
+  subprocess invocation of the same unmodified `cli.main()` — not an
+  in-process import, so §10.10's hard rule ("the GUI never imports pipeline
+  modules... only ever a subprocess invocation of the real `ce` entry
+  point") still holds.
+
+- **WP-17 · the `/doctor` screen's live log tailing uses the browser's
+  native `EventSource` API, not htmx.** htmx has no built-in SSE support
+  without vendoring a second file (the `htmx-ext-sse` extension), and one
+  screen's "tail a log live" behavior is exactly what `EventSource` is for
+  natively — `static/htmx.min.js` is still vendored per the Build line (for
+  the base layout's future page/partial navigation across WP-18–22), just
+  not used for this specific screen's streaming.
+
+- **WP-17 · `run_log.command_name()` derives a run's log filename with a
+  two-token, non-flag-prefix heuristic, not a real argv/Typer parser.** It
+  takes the leading run of tokens that don't start with `-`, capped at two
+  (`["doctor"]` → `doctor`, `["brief","select","br-01"]` → `brief-select`,
+  `["gui","--port","8420"]` → `gui`). Good enough for a readable, bounded
+  filename without needing this module to track every command's actual
+  positional/option schema — a filename is cosmetic, not something any
+  Done-when line depends on being parsed back out.
+
+- **WP-17 · `gui` is an optional dependency group (`fastapi`, `uvicorn`) in
+  `pyproject.toml`, not a hard dependency, and no new `doctor.py` entry was
+  added.** Same shape as WP-11's `playwright` extra: `pip install -e .`
+  alone doesn't need to pull in a web server just to run the pipeline CLI;
+  `ce gui` raises a readable `CEError` (`cli.py`'s `gui_cmd`) naming the
+  install command if the extra isn't present, rather than a bare
+  `ModuleNotFoundError` traceback. Neither WP-17's Build nor Done-when line
+  mentions `doctor.py`, unlike every dependency-adding WP before it that
+  did (WP-02/04/05/07/11/15) — confirmed by this session's
+  `wp-spec-conformance` review, which independently checked the TDD text
+  for any such requirement.
 
 - **GUI (pre-WP-17) · §15's "Web UI" out-of-scope trigger ("after 10
   published pieces") was overridden before it fired.** `data/posted.yml`

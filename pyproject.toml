@@ -42,6 +42,14 @@ dev = [
 assets = [
     "playwright>=1.40",
 ]
+# WP-17 (TDD 10.10, ADR-009): server-rendered FastAPI + Jinja2 + HTMX GUI.
+# Optional like `assets` -- the CLI is fully usable without it; `ce gui`
+# raises a readable error if these aren't installed rather than being a hard
+# dependency every operator pays for.
+gui = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 
 [project.scripts]
 ce = "ce.cli:main"

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Content Engine{% endblock %}</title>
+  <script src="/static/htmx.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, Segoe UI, sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    nav { display: flex; gap: 1rem; margin-bottom: 1.5rem; font-weight: 600; }
+    nav a { text-decoration: none; }
+    button {
+      font: inherit;
+      padding: 0.4rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid #8888;
+      cursor: pointer;
+    }
+    pre.console {
+      background: #1117;
+      color: #ddd;
+      padding: 1rem;
+      border-radius: 6px;
+      min-height: 8rem;
+      max-height: 28rem;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .status { font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 4px; }
+    .status-running { background: #8883; }
+    .status-ok { background: #2a2; color: #fff; }
+    .status-fail { background: #a22; color: #fff; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/runs">Runs</a>
+    <a href="/doctor">Doctor</a>
+  </nav>
+  {% block content %}{% endblock %}
+</body>
+</html>

@@ -37,6 +37,7 @@ EXPECTED_COMMANDS = [
     ("index", "rebuild"),
     ("cost",),
     ("doctor",),
+    ("gui",),
 ]
 
 # Which work package implements each stub. Empty now that WP-16 (the last

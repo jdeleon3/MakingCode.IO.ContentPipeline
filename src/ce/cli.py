@@ -13,6 +13,7 @@ annotations`. Typer resolves parameter types at runtime and postponed
 annotations have historically confused it for Optional/List parameters.
 """
 
+import sys
 from pathlib import Path
 
 import typer
@@ -895,6 +896,28 @@ def doctor_cmd(
 
 
 # ---------------------------------------------------------------------------
+# gui  (WP-17)
+# ---------------------------------------------------------------------------
+
+
+@app.command("gui")
+def gui_cmd(
+    port: int = typer.Option(8420, "--port", help="Bind port. Server is 127.0.0.1-only."),
+) -> None:
+    """Start the local web dashboard (TDD 10.10, ADR-009). No auth, no daemon --
+    runs only as long as this process is left open."""
+    try:
+        from ce.gui.app import serve
+    except ModuleNotFoundError as exc:
+        raise CEError(
+            "the GUI's dependencies aren't installed.",
+            hint='pip install -e ".[gui]"',
+        ) from exc
+
+    serve(port=port)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -910,15 +933,22 @@ def main() -> None:
     cwd-relative convention as `data/`, `config/engine.yml`, `prompts/`.
     Existing environment variables still win (`override=False`, the
     default) if a key is set both ways.
+
+    Every invocation is teed to `data/runs/<run-id>-<command>.log` (TDD §14,
+    WP-17's `ce/run_log.py`) -- not just GUI-triggered ones, since §14
+    describes it as a system-wide behavior, not a GUI-only one.
     """
     load_dotenv(Path(".env"))
-    try:
-        app()
-    except CEError as exc:
-        console.failure(exc.message)
-        if exc.hint:
-            console.hint(exc.hint)
-        raise SystemExit(int(exc.exit_code)) from None
+    from ce import run_log
+
+    with run_log.tee(Path("data"), sys.argv[1:]):
+        try:
+            app()
+        except CEError as exc:
+            console.failure(exc.message)
+            if exc.hint:
+                console.hint(exc.hint)
+            raise SystemExit(int(exc.exit_code)) from None
 
 
 if __name__ == "__main__":
