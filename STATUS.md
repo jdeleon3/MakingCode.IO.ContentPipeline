@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-10
+**Last session:** 2026-07-28 — completed WP-11
 
 ---
 
@@ -33,8 +33,8 @@
 | WP-08 | Inventory generator (MATCH) ⭐ | ✅ done | 279 tests passing (18 new); **MVP milestone** — usable system after this |
 | WP-09 | Writer & grader | ✅ done | 323 tests passing (44 new) |
 | WP-10 | Claim verification | ✅ done | 337 tests passing (14 new) |
-| WP-11 | Asset pipeline | 🔵 **next** | flip `mermaid-cli`, `playwright` to required |
-| WP-12 | Renditions | ⬜ | |
+| WP-11 | Asset pipeline | ✅ done | 355 tests passing (18 new); `mermaid-cli`/`playwright` now required in `doctor.py` — `ce doctor` will fail on a machine without both installed |
+| WP-12 | Renditions | 🔵 **next** | |
 | WP-13 | Packager & REVIEW.html | ⬜ | |
 | WP-14 | Site publish | ⬜ | |
 | WP-15 | Post-back & metrics | ⬜ | |
@@ -45,6 +45,68 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-11 · no `Asset` schema exists anywhere in TDD 5.2, and
+  `pieces/<id>/assets/`'s *inputs* (as opposed to its rendered outputs)
+  aren't named by TDD 5.4/§7's directory tree at all — every input
+  location below is this session's invention, not a TDD-specified path.**
+  Recorded here in full since none of it could be inferred from an
+  existing convention the way, say, WP-09's `grades.json` shape could:
+  - **Diagram source**: hand-authored Mermaid at
+    `pieces/<id>/assets/diagrams/*.mmd`, one PNG per file. TDD 10.7 says
+    diagram input is "Mermaid source (LLM-generated or hand)" but WP-11's
+    Build line names no new prompt, so "or hand" is the only path this WP
+    actually builds — nests inside the already-TDD-named `assets/` leaf.
+  - **Code snippets**: `pieces/<id>/evidence/*`, one code card per file,
+    language inferred from extension. Reuses TDD 6.2's exact words — "the
+    operator hand-selects the snippet into `evidence/` explicitly" — for
+    *where*, but that line never gives a path, and **`evidence/` does not
+    appear in TDD 5.4/§7's own `pieces/<id>/` directory tree** (which lists
+    only `piece.yml`, `article.md`, `grades.json`, `verification.json`,
+    `renditions/`, `assets/`). This is the one invented convention that
+    adds a wholly new top-level piece subdirectory rather than nesting
+    inside one the TDD already named — flagged explicitly since it's a
+    bigger liberty than the other three.
+  - **Hero image**: `pieces/<id>/assets/hero-source.<ext>`, copied as-is to
+    `assets/hero.<ext>` — TDD 10.7's unlabeled fourth table row
+    ("screenshots: copy + manual review flag"), matched to the CLI stub's
+    pre-existing `--only diagram|codecard|thumbnail|hero` help text and
+    TDD 5.1's `Piece 1--* Asset (hero, diagram, code card, thumbnail,
+    video)` line — `hero`/`video` are named asset *kinds* there with no
+    corresponding §10.7 renderer; `video` stays out of scope entirely
+    (§2.3: "Generate long-form video from text" is explicitly not done).
+  - **Thumbnail background**: optional `pieces/<id>/assets/thumbnail-bg.<ext>`.
+    TDD 10.7 lists thumbnail inputs as "title, screenshot, optional face" —
+    "face" isn't built (no capture type for a face photo exists anywhere
+    in this codebase, and it's not exercised by WP-11's Done-when line);
+    "screenshot" is this hand-staged background file rather than an
+    auto-picked `CaptureType.SCREENSHOT` capture, since nothing links a
+    `Capture` to a `Piece` in the data model to pick one from correctly.
+  - **Per-platform code-card dimensions**: hardcoded `_PLATFORM_DIMS` in
+    `assets/codecard.py`, not read from `config/platforms/*.yml`. TDD 10.7
+    asks for "per-platform dims" but those config files don't exist yet —
+    WP-12's own Build line is "three platform configs"; WP-11 (`D: WP-09`
+    only) has no dependency on WP-12 and genuinely cannot read a file that
+    doesn't exist. Revisit once WP-12 builds real platform configs.
+
+- **WP-11 · `playwright` is an optional extra
+  (`pyproject.toml`'s `[project.optional-dependencies].assets`), not a hard
+  dependency like every prior WP's new SDK (`numpy` WP-06, `google-genai`/
+  `perplexityai` WP-07).** `pip install playwright` alone doesn't make it
+  usable — `playwright install chromium` is a separate ~300MB download
+  beyond what any other WP's dependency needed, and
+  `PlaywrightScreenshotRenderer` already imports it lazily behind a
+  `ScreenshotRenderer` Protocol (same DI shape as WP-04's `ffmpeg` seam),
+  raising a readable `AssetError` if it's missing rather than crashing at
+  import time. `mermaid-cli` has no `pyproject.toml` entry at all — it's a
+  system/npm binary, never a Python package, same as `ffmpeg`/`gitleaks`.
+
+- **WP-11 · `mermaid-cli`/`playwright + chromium` flipped to
+  `required=True` in `doctor.py`, per this WP's own close-out convention
+  (WP-04's `ffmpeg`, WP-05's `gitleaks`).** Neither is installed on this
+  dev machine — `ce doctor` now exits 1 here until both are installed;
+  confirmed this is the intended signal (the operator needs to know
+  before trying to run `ce assets` for real), not a regression.
 
 - **WP-10 · `external` claim verification reuses WP-07's `research_stance`
   prompt instead of a new one.** TDD 6.4 says `external` claims are

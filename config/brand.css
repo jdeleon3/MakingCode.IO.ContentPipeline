@@ -1,0 +1,40 @@
+/* Content Engine brand stylesheet (TDD 10.7) — matches makingcode.io's
+   live theme. assets/codecard.py and assets/thumbnail.py inline this into
+   every rendered PNG so code cards and thumbnails match the site they'll
+   be published next to, not a generic default.
+
+   Values pulled directly from the site's compiled CSS
+   (https://makingcode.io/_astro/BaseLayout.*.css), not eyeballed from a
+   screenshot — re-extract the same way if the site's theme changes:
+     curl -s https://makingcode.io/ | grep -o '/_astro/[^"]*\.css'
+     curl -s https://makingcode.io/_astro/<that file> | grep -oE '\-\-color-[a-z-]+:[^;]+'
+
+   Kept intentionally small: only what the two templates in
+   assets/templates/ actually reference. Add custom properties here and
+   consume them in the templates rather than hardcoding colors there. */
+
+:root {
+  /* Surfaces (site is dark-theme by default) */
+  --brand-bg: #0a0b0d;           /* --color-surface */
+  --brand-bg-raised: #15171b;    /* --color-surface-raised */
+  --brand-border: #26282d;       /* --color-border */
+
+  /* Text */
+  --brand-fg: #ece7dd;           /* --color-ink (warm off-white, not pure white) */
+  --brand-fg-muted: #8d8d86;     /* --color-ink-muted */
+
+  /* Accent */
+  --brand-accent: #259ae8;       /* --color-accent */
+  --brand-accent-dim: #165c8b;   /* --color-accent-dim */
+
+  /* Fonts — same three-family split as the site: a serif display face for
+     headings, IBM Plex Sans for body/UI text, IBM Plex Mono for code and
+     labels. Load these via Google Fonts (same host the site uses) in any
+     template that references them; @font-face is not embedded here since
+     Playwright fetches over the network at render time regardless. */
+  --brand-font-display: "Fraunces", "Iowan Old Style", serif;
+  --brand-font: "IBM Plex Sans", system-ui, sans-serif;
+  --brand-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --brand-radius: 2px;           /* --radius-card -- the site uses near-sharp corners */
+}

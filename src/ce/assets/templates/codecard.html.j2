@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@600&display=swap">
+<style>
+{{ brand_css|safe }}
+
+body {
+  margin: 0;
+  padding: 40px;
+  background: var(--brand-bg, #0a0b0d);
+  font-family: var(--brand-mono, monospace);
+  box-sizing: border-box;
+}
+pre {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.5;
+  color: var(--brand-fg, #ece7dd);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lang {
+  display: inline-block;
+  margin-bottom: 16px;
+  padding: 4px 10px;
+  border-radius: var(--brand-radius, 2px);
+  background: var(--brand-accent, #259ae8);
+  color: var(--brand-bg, #0a0b0d);
+  font-family: var(--brand-font, sans-serif);
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+<span class="lang">{{ lang }}</span>
+<pre><code>{{ snippet }}</code></pre>
+</body>
+</html>

@@ -33,6 +33,15 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
 ]
+# WP-11's PlaywrightScreenshotRenderer imports this lazily (behind a
+# ScreenshotRenderer Protocol, same DI shape as WP-04's ffmpeg seam) and
+# raises a readable AssetError if it's missing -- kept optional rather than
+# a hard dependency because `pip install` alone doesn't make it usable:
+# `playwright install chromium` is a separate, large (~300MB) download step
+# beyond what every other WP's dependencies needed.
+assets = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 ce = "ce.cli:main"

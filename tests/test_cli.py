@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("assets",): "WP-11",
     ("render",): "WP-12",
     ("package",): "WP-13",
     ("publish", "site"): "WP-14",
@@ -91,7 +90,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("assets",): ["pc-0001"],
         ("render",): ["pc-0001"],
         ("package",): ["pc-0001"],
         ("publish", "site"): ["pc-0001"],
@@ -1042,6 +1040,82 @@ def test_verify_force_proceeds_despite_a_failed_claim(tmp_path, monkeypatch):
     reloaded = store.read_piece(data_root, "test-proj", "pc-0001")
     assert reloaded.status == PieceStatus.VERIFIED
     assert reloaded.verification.claims_failed == 1
+
+
+# --- assets (WP-11, TDD 12 "Done when") --------------------------------------
+
+
+def test_assets_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce assets` used to raise `NotImplementedYet("assets", "WP-11")`; now
+    it should reach real logic (and fail on an unknown piece, not on "not
+    implemented yet")."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["assets", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_assets_only_diagram_end_to_end(tmp_path, monkeypatch):
+    """Wires `ce assets --only diagram` through the real CLI command, with
+    `mermaid-cli` faked (this dev environment has none installed -- see
+    test_assets.py)."""
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.assets import diagram as diagram_module
+    from ce.models import Brief, BriefDemand, GroundingStrength, Piece, Project
+
+    monkeypatch.chdir(tmp_path)
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+    diagrams_dir = store.piece_dir(data_root, "test-proj", "pc-0001") / "assets" / "diagrams"
+    diagrams_dir.mkdir(parents=True)
+    (diagrams_dir / "flow.mmd").write_text("graph TD; A-->B;", encoding="utf-8")
+
+    class FakeMermaidCliRenderer:
+        def render(self, mermaid_source, output_path, *, width):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"fake-png")
+
+    monkeypatch.setattr(diagram_module, "MermaidCliRenderer", FakeMermaidCliRenderer)
+
+    result = runner.invoke(cli.app, ["assets", "pc-0001", "--only", "diagram"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert (store.piece_dir(data_root, "test-proj", "pc-0001") / "assets" / "flow.png").exists()
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

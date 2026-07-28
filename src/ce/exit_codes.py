@@ -143,6 +143,17 @@ class InventoryError(CEError):
     exit_code = Exit.ERROR
 
 
+class AssetError(CEError):
+    """`assets/*` (TDD 10.7, 12 WP-11) failed: a missing `mermaid-cli`/
+    Playwright binary, a failed render subprocess, or an unknown `--only`
+    kind. Mirrors `CaptureError`'s "missing binary produces a clear error,
+    not a stack trace" shape (WP-04's `ffmpeg` check) — WP-11's own
+    Done-when line asks for the identical behavior for `mermaid-cli`.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

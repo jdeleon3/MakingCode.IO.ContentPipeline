@@ -539,7 +539,37 @@ def assets(
     only: str | None = typer.Option(None, "--only", help="diagram|codecard|thumbnail|hero"),
 ) -> None:
     """Render diagrams, code cards and thumbnails."""
-    raise NotImplementedYet("assets", "WP-11")
+    from ce import assets as assets_module
+    from ce import store
+    from ce.assets.codecard import PlaywrightScreenshotRenderer
+    from ce.assets.diagram import MermaidCliRenderer
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    brief = next(
+        (b for b in store.read_briefs(data_root, project.slug) if b.id == piece.brief_id), None
+    )
+    if brief is None:
+        raise CEError(f"brief {piece.brief_id!r} (piece {piece_id!r}'s source) no longer exists")
+
+    result = assets_module.generate(
+        piece,
+        brief,
+        data_root=data_root,
+        only=only,
+        diagram_renderer=MermaidCliRenderer(),
+        screenshot_renderer=PlaywrightScreenshotRenderer(),
+    )
+
+    for path in result.produced:
+        console.success(f"wrote {path}")
+    for reason in result.skipped:
+        console.out(f"  (skipped) {reason}")
+    console.out(f"\n{len(result.produced)} asset(s) produced, {len(result.skipped)} skipped")
 
 
 @app.command("render")

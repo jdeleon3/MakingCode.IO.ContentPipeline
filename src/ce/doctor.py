@@ -195,14 +195,14 @@ CHECKS: list[Check] = [
     Check(
         name="mermaid-cli",
         probe=check_mermaid,
-        required=False,
+        required=True,
         needed_for="WP-11",
         install="npm install -g @mermaid-js/mermaid-cli",
     ),
     Check(
         name="playwright + chromium",
         probe=check_playwright,
-        required=False,
+        required=True,
         needed_for="WP-11",
         install="pip install playwright && playwright install chromium",
     ),
