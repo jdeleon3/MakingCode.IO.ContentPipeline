@@ -109,6 +109,10 @@ def grades_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
     return piece_dir(data_root, slug, piece_id) / "grades.json"
 
 
+def verification_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
+    return piece_dir(data_root, slug, piece_id) / "verification.json"
+
+
 def posted_yaml_path(data_root: Path) -> Path:
     return data_root / "posted.yml"
 

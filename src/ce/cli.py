@@ -462,7 +462,75 @@ def verify(
     force: bool = typer.Option(False, "--force", help="Proceed despite unverifiable claims."),
 ) -> None:
     """Extract and verify factual claims (gate G4)."""
-    raise NotImplementedYet("verify", "WP-10")
+    from datetime import UTC, datetime
+
+    from ce import store
+    from ce.config import load_engine_config
+    from ce.exit_codes import GateBlocked
+    from ce.gates import claims as claims_module
+    from ce.harvest import git as git_harvest_module
+    from ce.harvest import research as research_module
+    from ce.llm.gateway import Gateway
+    from ce.models import PieceStatus, VerificationSummary
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    brief = next(
+        (b for b in store.read_briefs(data_root, project.slug) if b.id == piece.brief_id), None
+    )
+    if brief is None:
+        raise CEError(f"brief {piece.brief_id!r} (piece {piece_id!r}'s source) no longer exists")
+
+    config = load_engine_config()
+    if not config.gates.claims.enabled:
+        console.success(
+            f"claim verification disabled (config.gates.claims.enabled=false); skipping {piece_id}"
+        )
+        return
+
+    article_path = store.piece_dir(data_root, project.slug, piece.id) / piece.article_path
+    if not article_path.exists():
+        raise CEError(f"{article_path} does not exist -- run `ce produce {piece_id}` first")
+    article = article_path.read_text(encoding="utf-8")
+
+    harvest_dir = store.harvest_dir(data_root, project.slug)
+    gateway = Gateway(config, data_root=data_root)
+
+    result = claims_module.verify(
+        article,
+        brief,
+        project,
+        data_root=data_root,
+        gateway=gateway,
+        git_harvest=git_harvest_module.read_git_harvest(harvest_dir),
+        research_harvest=research_module.read_research_harvest(harvest_dir),
+        search_client=research_module.build_search_client(config.harvest.research.provider),
+        fetch_client=research_module.HttpFetchClient(),
+    )
+    claims_module.write_verification_json(
+        store.verification_json_path(data_root, project.slug, piece.id), result
+    )
+
+    try:
+        claims_module.check(result, block_on_unverifiable=config.gates.claims.block_on_unverifiable)
+    except GateBlocked as exc:
+        if not force:
+            raise
+        console.warn(f"{exc.message} (proceeding: --force)")
+
+    now = datetime.now(UTC)
+    failed = result.failed(block_on_unverifiable=config.gates.claims.block_on_unverifiable)
+    piece.verification = VerificationSummary(
+        claims_checked=len(result.claims), claims_failed=len(failed), ran_at=now
+    )
+    piece.status = PieceStatus.VERIFIED
+    store.write_piece(data_root, project.slug, piece)
+
+    console.success(f"verified {piece_id}: {len(result.claims)} claim(s), {len(failed)} failed")
 
 
 @app.command("assets")

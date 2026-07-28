@@ -452,7 +452,7 @@ def test_evidence_context_resolves_capture_ref_to_real_transcript(tmp_path):
         weakest_point="n=1",
     )
 
-    context = writer._format_evidence_context(
+    context = writer.format_evidence_context(
         brief,
         data_root=data_root,
         project=project,
@@ -481,7 +481,7 @@ def test_evidence_context_resolves_commit_ref_to_git_json_summary(tmp_path):
         weakest_point="n=1",
     )
 
-    context = writer._format_evidence_context(
+    context = writer.format_evidence_context(
         brief,
         data_root=data_root,
         project=project,
@@ -520,7 +520,7 @@ def test_evidence_context_resolves_research_ref_to_research_json_summary(tmp_pat
         weakest_point="n=1",
     )
 
-    context = writer._format_evidence_context(
+    context = writer.format_evidence_context(
         brief,
         data_root=data_root,
         project=project,
@@ -547,7 +547,7 @@ def test_evidence_context_falls_back_to_quote_when_ref_no_longer_resolves(tmp_pa
         weakest_point="n=1",
     )
 
-    context = writer._format_evidence_context(
+    context = writer.format_evidence_context(
         brief,
         data_root=data_root,
         project=project,
@@ -564,7 +564,7 @@ def test_evidence_context_empty_evidence_list(tmp_path):
     brief = _brief()
     brief.evidence = []
 
-    context = writer._format_evidence_context(
+    context = writer.format_evidence_context(
         brief,
         data_root=data_root,
         project=project,

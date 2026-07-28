@@ -31,8 +31,9 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from ce import store
+from ce.evidence import resolve_capture_or_commit
 from ce.exit_codes import CEError
-from ce.harvest.git import GitHarvest
+from ce.harvest.git import CommitRecord, GitHarvest
 from ce.harvest.inventory import assert_selectable
 from ce.harvest.research import ResearchHarvest
 from ce.index import EmbeddingsClient, cosine_similarity
@@ -125,20 +126,7 @@ def _capture_transcript_text(project_root: Path, capture: Capture) -> str:
     return "\n".join(parts)
 
 
-def _resolve_commit_summary(base_ref: str, git_harvest: GitHarvest) -> str | None:
-    """Matches a full or short SHA against `git.json`'s commits, same
-    short-SHA-prefix rule `harvest/inventory.py::_find_unresolvable_citations`
-    uses to validate citations at MATCH time."""
-    for repo in git_harvest.repos:
-        for commit in repo.commits:
-            if commit.sha == base_ref or (
-                len(base_ref) >= 7 and commit.sha.lower().startswith(base_ref.lower())
-            ):
-                return commit.summary
-    return None
-
-
-def _format_evidence_context(
+def format_evidence_context(
     brief: Brief,
     *,
     data_root: Path,
@@ -153,6 +141,11 @@ def _format_evidence_context(
     URL to `research.json`'s summary. Scoped to only what this brief cites,
     not the whole harvest (unlike WP-08's inventory context, which needs
     everything in order to choose *what* to cite in the first place).
+
+    Public (not `_`-prefixed): `gates/claims.py` (WP-10) reuses this
+    verbatim so `claim_extract` sees the same evidence material the article
+    was drafted from — otherwise it couldn't tell which capture/commit a
+    "grounded" claim should cite.
     """
     if not brief.evidence:
         return "(no cited evidence)"
@@ -163,17 +156,21 @@ def _format_evidence_context(
 
     blocks = []
     for e in brief.evidence:
-        base_ref = e.ref.split("@", 1)[0]
         header = f"[{e.kind}] {e.ref}"
         if e.note:
             header += f" — {e.note}"
 
-        if base_ref in captures_by_id:
-            body = _capture_transcript_text(project_root, captures_by_id[base_ref])
+        resolved = resolve_capture_or_commit(
+            e.ref, captures_by_id=captures_by_id, git_harvest=git_harvest
+        )
+        if isinstance(resolved, Capture):
+            body = _capture_transcript_text(project_root, resolved)
+        elif isinstance(resolved, CommitRecord):
+            body = resolved.summary
+        elif e.ref in research_by_url:
+            body = research_by_url[e.ref].summary
         else:
-            body = _resolve_commit_summary(base_ref, git_harvest)
-            if body is None and e.ref in research_by_url:
-                body = research_by_url[e.ref].summary
+            body = None
 
         if not body:
             # Cited at MATCH time but doesn't resolve now (harvest re-run,
@@ -341,7 +338,7 @@ def produce(
     invocation from `ce harvest`, so there's no in-memory harvest left over
     — see `harvest.git.read_git_harvest`/`harvest.research.read_research_harvest`).
     """
-    evidence_context = _format_evidence_context(
+    evidence_context = format_evidence_context(
         brief,
         data_root=data_root,
         project=project,

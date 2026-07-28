@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("verify",): "WP-10",
     ("assets",): "WP-11",
     ("render",): "WP-12",
     ("package",): "WP-13",
@@ -92,7 +91,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("verify",): ["pc-0001"],
         ("assets",): ["pc-0001"],
         ("render",): ["pc-0001"],
         ("package",): ["pc-0001"],
@@ -777,6 +775,273 @@ def test_produce_end_to_end_drafts_grades_and_writes_article(tmp_path, monkeypat
         encoding="utf-8"
     )
     assert article == "# Drafted article\n\nBody."
+
+
+# --- verify (WP-10, TDD 12 "Done when") --------------------------------------
+
+
+def test_verify_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce verify` used to raise `NotImplementedYet("verify", "WP-10")`; now
+    it should reach real logic (and fail on an unknown piece, not on "not
+    implemented yet")."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["verify", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_verify_blocks_on_a_planted_unverifiable_claim_and_writes_verification_json(
+    tmp_path, monkeypatch
+):
+    """WP-10 Done-when: a fixture article with one planted unverifiable
+    claim exits 2 naming that claim; verification.json is still written."""
+    import json
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+    from ce.models import Piece, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    piece = Piece(
+        id="pc-0001",
+        brief_id="br-01",
+        project="test-proj",
+        slug="a-piece",
+        created_at=datetime.now(UTC),
+        article_path=Path("article.md"),
+    )
+    store.write_piece(data_root, "test-proj", piece)
+    from ce.models import Brief, BriefDemand, GroundingStrength
+
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+    (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").write_text(
+        "This change saved us exactly $2M a year.", encoding="utf-8"
+    )
+
+    claims_json = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "This change saved us exactly $2M a year.",
+                    "class": "unverifiable",
+                    "ref": None,
+                }
+            ]
+        }
+    )
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content=claims_json, in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(cli.app, ["verify", "pc-0001"])
+
+    # `CliRunner.invoke(cli.app, ...)` calls the Typer app directly, not
+    # `cli.main()` -- the CEError -> process-exit-code translation (TDD 9's
+    # exit 2 for a gate block) only happens in `main()` (see
+    # `test_main_maps_ce_error_to_exit_code`), so this asserts the
+    # exception itself carries `Exit.GATE_BLOCKED`, same as every other
+    # CEError-raising CLI test here.
+    assert result.exit_code != Exit.OK, result.output
+    assert isinstance(result.exception, GateBlocked)
+    assert result.exception.exit_code == Exit.GATE_BLOCKED
+    assert "This change saved us exactly $2M a year." in result.exception.message
+
+    verification_path = store.verification_json_path(data_root, "test-proj", "pc-0001")
+    assert verification_path.exists()
+    data = json.loads(verification_path.read_text(encoding="utf-8"))
+    assert len(data["claims"]) == 1
+    assert data["claims"][0]["passed"] is False
+
+
+def test_verify_passes_and_marks_piece_verified(tmp_path, monkeypatch):
+    import json
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+    from ce.models import Brief, BriefDemand, GroundingStrength, Piece, PieceStatus, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+    (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").write_text(
+        "I think this project went well.", encoding="utf-8"
+    )
+
+    claims_json = json.dumps(
+        {"claims": [{"text": "I think this project went well.", "class": "opinion", "ref": None}]}
+    )
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content=claims_json, in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(cli.app, ["verify", "pc-0001"])
+
+    assert result.exit_code == Exit.OK, result.output
+
+    reloaded = store.read_piece(data_root, "test-proj", "pc-0001")
+    assert reloaded.status == PieceStatus.VERIFIED
+    assert reloaded.verification is not None
+    assert reloaded.verification.claims_checked == 1
+    assert reloaded.verification.claims_failed == 0
+
+
+def test_verify_force_proceeds_despite_a_failed_claim(tmp_path, monkeypatch):
+    """`--force` (TDD 6.4: G4 is "blocking, bypassable with --force", unlike
+    G1/G2) lets `ce verify` proceed past a failed claim instead of raising
+    -- verification.json and piece.yml still record the failure."""
+    import json
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+    from ce.models import Brief, BriefDemand, GroundingStrength, Piece, PieceStatus, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+    (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").write_text(
+        "This change saved us exactly $2M a year.", encoding="utf-8"
+    )
+
+    claims_json = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "This change saved us exactly $2M a year.",
+                    "class": "unverifiable",
+                    "ref": None,
+                }
+            ]
+        }
+    )
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content=claims_json, in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(cli.app, ["verify", "pc-0001", "--force"])
+
+    assert result.exit_code == Exit.OK, result.output
+
+    verification_path = store.verification_json_path(data_root, "test-proj", "pc-0001")
+    data = json.loads(verification_path.read_text(encoding="utf-8"))
+    assert data["claims"][0]["passed"] is False
+
+    reloaded = store.read_piece(data_root, "test-proj", "pc-0001")
+    assert reloaded.status == PieceStatus.VERIFIED
+    assert reloaded.verification.claims_failed == 1
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

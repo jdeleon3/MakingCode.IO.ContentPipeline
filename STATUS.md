@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-09
+**Last session:** 2026-07-28 — completed WP-10
 
 ---
 
@@ -32,8 +32,8 @@
 | WP-07 | External research | ✅ done | 261 tests passing (21 new); swappable search: gemini (default) / duckduckgo / perplexity; `GEMINI_API_KEY` now required in `doctor.py` |
 | WP-08 | Inventory generator (MATCH) ⭐ | ✅ done | 279 tests passing (18 new); **MVP milestone** — usable system after this |
 | WP-09 | Writer & grader | ✅ done | 323 tests passing (44 new) |
-| WP-10 | Claim verification | 🔵 **next** | |
-| WP-11 | Asset pipeline | ⬜ | flip `mermaid-cli`, `playwright` to required |
+| WP-10 | Claim verification | ✅ done | 337 tests passing (14 new) |
+| WP-11 | Asset pipeline | 🔵 **next** | flip `mermaid-cli`, `playwright` to required |
 | WP-12 | Renditions | ⬜ | |
 | WP-13 | Packager & REVIEW.html | ⬜ | |
 | WP-14 | Site publish | ⬜ | |
@@ -45,6 +45,53 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-10 · `external` claim verification reuses WP-07's `research_stance`
+  prompt instead of a new one.** TDD 6.4 says `external` claims are
+  "supported by a fetched source. Web search + fetch" but WP-10's Build
+  line names only one new prompt (`claim_extract`) — no second prompt for
+  "does this fetched source support this specific claim." Stance
+  classification (`supports`/`contradicts`/`neutral` against a hypothesis)
+  *is* that check: `gates/claims.py::_verify_external` searches for the
+  claim text, fetches each hit in rank order via the existing
+  `SearchClient`/`FetchClient` Protocols, and treats the first `supports`
+  stance as verification. No new dependency, no new prompt.
+
+- **WP-10 · promoted `produce/writer.py::_format_evidence_context` to
+  public (`format_evidence_context`) and factored its capture/commit
+  resolution out to a new `ce/evidence.py::resolve_capture_or_commit`.**
+  `claim_extract` needs to see the *same* evidence material the article was
+  drafted from, to correctly attribute a `grounded` claim's `ref` — without
+  reuse this would've been ~70 lines duplicated between `produce/writer.py`
+  and `gates/claims.py`. Deliberately **not** touched:
+  `harvest/inventory.py`'s own (older, boolean-only, raw-JSON-shaped)
+  citation-resolvability check — refactoring already-closed WP-08 code onto
+  the new shared resolver was out of this WP's scope; three
+  independent-but-related implementations of "does this ref resolve" now
+  exist (`inventory.py`'s set-based check, and the shared resolver used by
+  `writer.py`+`claims.py`) rather than one canonical version everywhere.
+
+- **WP-10 · `config.gates.claims.block_on_unverifiable` (already defined in
+  `config.py` since WP-01, unused until now) controls only whether an
+  `unverifiable`-classified claim blocks `ce verify`.** TDD 6.4's table
+  gives no toggle for this — `unverifiable` "blocks", full stop. A
+  `grounded` claim that doesn't resolve, or an `external` claim no fetched
+  source supports, still blocks unconditionally regardless of this flag;
+  it only changes whether the softer, harder-to-mechanically-verify
+  `unverifiable` class is treated as fatal. `--force` (TDD 9's CLI
+  contract) is the separate, always-available bypass on top of that
+  policy — `verification.json` and `piece.yml#verification` record every
+  failure either way, `--force` only decides whether `ce verify` raises.
+
+- **WP-10 · `opinion`-classified claims are never independently
+  re-verified — trusted entirely to `claim_extract`'s own classification.**
+  TDD 6.4 says opinion claims need "no verification" but must be
+  "linguistically marked as opinion." There's no mechanical way to check
+  "is this phrased as an opinion" without another LLM judgment call, which
+  would just be re-classifying the same claim a second time; the
+  `claim_extract` prompt is instructed to only use `opinion` when a claim
+  is genuinely hedged/first-person-marked, and that instruction is the only
+  enforcement.
 
 - **WP-09 · `ce brief select <brief-id>` / `ce produce <piece-id>` take no
   `--project` (TDD 9's literal CLI contract), so both are found by scanning
