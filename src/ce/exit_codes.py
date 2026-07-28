@@ -115,6 +115,15 @@ class HarvestError(CEError):
     exit_code = Exit.ERROR
 
 
+class IndexingError(CEError):
+    """`ce index rebuild` (TDD 10, ADR-002/003) failed for a reason other
+    than a gate blocking a run: a missing embeddings API key, an
+    unreachable embeddings endpoint, or a corrupt `index.db`.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

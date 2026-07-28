@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-05
+**Last session:** 2026-07-27 — completed WP-06
 
 ---
 
@@ -28,8 +28,8 @@
 | WP-03 | Project lifecycle | ✅ done | 155 tests passing (24 new) |
 | WP-04 | Capture & transcription | ✅ done | 188 tests passing (33 new); `ffmpeg`/`OPENAI_API_KEY` now required in `doctor.py` |
 | WP-05 | Git harvest & safety gates ⚠️ | ✅ done | 225 tests passing (37 new); `gitleaks` now required in `doctor.py` |
-| WP-06 | Index & dedupe | 🔵 **next** | |
-| WP-07 | External research | ⬜ | |
+| WP-06 | Index & dedupe | ✅ done | 240 tests passing (15 new); added `numpy` dependency |
+| WP-07 | External research | 🔵 **next** | |
 | WP-08 | Inventory generator (MATCH) ⭐ | ⬜ | **MVP milestone** — usable system after this |
 | WP-09 | Writer & grader | ⬜ | |
 | WP-10 | Claim verification | ⬜ | |
@@ -45,6 +45,35 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-06 · `gates/dedupe.py`'s `check()`/`max_similarity()` take a
+  precomputed embedding (`np.ndarray`) plus an open `sqlite3.Connection`,
+  not text + an `EmbeddingsClient` + an index path.** TDD 12's Build line
+  only names the module, not a signature. Splitting the embed step out
+  means a caller that already has the candidate's embedding (or needs the
+  raw `dedupe_max_similarity` score for a brief that isn't blocked — TDD
+  10.4) never re-embeds the same text twice for two different questions.
+  WP-08/09 (the actual callers) own turning `--force` into "skip calling
+  this at all"; the gate itself has no bypass logic, same shape as G1/G2.
+
+- **WP-06 · `index.py`'s embeddings client is reached through an
+  `EmbeddingsClient` Protocol (`OpenAIEmbeddingsClient` for real, a fake in
+  tests), same DI shape as every other external-API seam in this
+  codebase.** Not a hard requirement here the way ffmpeg/gitleaks were in
+  WP-04/05 — nothing prevents live OpenAI calls in this environment
+  (`OPENAI_API_KEY` is already required since WP-04) — but a live network
+  call in every test run would be slow, costly, and nondeterministic.
+  The fake (`tests/conftest.py`'s `FakeHashingEmbeddingsClient`) does real
+  bag-of-words hashing against actual text content rather than returning a
+  canned vector, so the Done-when thresholds (near-identical >0.9,
+  unrelated <0.5) are genuinely exercised, not asserted against a rigged
+  response.
+
+- **WP-06 · added `numpy` as a runtime dependency (`pyproject.toml`).**
+  ADR-003 explicitly calls for embeddings "stored as a numpy array" with
+  brute-force cosine similarity; the TDD's dependency list in WP-00's Build
+  line predates this ADR being acted on. No other WP's `--Done when--`
+  criteria are affected.
 
 - **WP-05 · `harvest/git.py`'s `git.json` is `{"repos": [...]}`, one entry
   per `project.repos`, not the single flat object TDD 10.3's example

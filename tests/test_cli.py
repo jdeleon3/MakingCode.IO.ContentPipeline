@@ -51,7 +51,6 @@ EXPECTED_WP = {
     ("publish", "site"): "WP-14",
     ("posted",): "WP-15",
     ("sweep",): "WP-16",
-    ("index", "rebuild"): "WP-06",
 }
 
 
@@ -427,6 +426,61 @@ def test_capture_list_empty_project(tmp_path, monkeypatch):
     result = runner.invoke(cli.app, ["capture", "list", "test-proj"])
     assert result.exit_code == Exit.OK
     assert "no captures" in result.output.lower()
+
+
+# --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------
+
+
+def test_index_rebuild_end_to_end(tmp_path, monkeypatch):
+    """Wires `store.list_pieces` -> embed -> `index.db` end to end through
+    the real CLI command, with the embeddings API faked (this dev
+    environment has no network access to it in tests — see test_index.py).
+    """
+    from datetime import UTC, datetime
+
+    from ce import index as index_module
+    from ce import store
+    from ce.models import Piece, PieceStatus
+
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    _write_minimal_engine_config(tmp_path)
+
+    piece = Piece(
+        id="pc-0001",
+        brief_id="br-01",
+        project="test-proj",
+        slug="pc-0001",
+        status=PieceStatus.DRAFTED,
+        created_at=datetime.now(UTC),
+        article_path="article.md",
+    )
+    store.write_piece(tmp_path / "data", "test-proj", piece)
+    (store.piece_dir(tmp_path / "data", "test-proj", "pc-0001") / "article.md").write_text(
+        "Some drafted article content about DuckDB.", encoding="utf-8"
+    )
+
+    class FakeEmbeddingsClient:
+        def embed(self, text, *, model):
+            return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(index_module, "OpenAIEmbeddingsClient", FakeEmbeddingsClient)
+
+    result = runner.invoke(cli.app, ["index", "rebuild"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "indexed 1" in result.output.lower()
+    assert (tmp_path / "data" / "index.db").exists()
+
+
+def test_index_rebuild_with_no_pieces_indexes_zero(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+
+    result = runner.invoke(cli.app, ["index", "rebuild"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "indexed 0" in result.output.lower()
 
 
 # --- exit code contract (TDD 9) --------------------------------------------

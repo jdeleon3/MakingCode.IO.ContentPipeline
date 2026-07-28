@@ -341,7 +341,18 @@ def sweep(
 @index_app.command("rebuild")
 def index_rebuild() -> None:
     """Rebuild the derived SQLite index and embeddings from data/ (ADR-002)."""
-    raise NotImplementedYet("index rebuild", "WP-06")
+    from ce import index as index_module
+    from ce.config import load_engine_config
+
+    data_root = Path("data")
+    config = load_engine_config()
+    count = index_module.rebuild(
+        data_root,
+        data_root / "index.db",
+        embeddings_client=index_module.OpenAIEmbeddingsClient(),
+        model=config.embeddings.model,
+    )
+    console.success(f"indexed {count} piece(s)")
 
 
 @app.command("cost")

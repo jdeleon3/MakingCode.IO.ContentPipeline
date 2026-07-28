@@ -5,10 +5,18 @@ boilerplate that WP-02's `test_llm_gateway.py` and WP-03's `test_project.py`
 each wrote their own copy of — new tests should use this one instead of
 adding a fourth copy. Existing copies are left alone; a shared conftest
 fixture doesn't require touching already-closed WPs' test files to adopt.
+
+`FakeHashingEmbeddingsClient` (WP-06) is a real, deterministic bag-of-words
+hashing "embedding" — not a scripted canned vector — so cosine similarity
+computed from it genuinely reflects vocabulary overlap between two texts.
+Good enough to prove WP-06's Done-when thresholds (near-identical > 0.9,
+unrelated < 0.5) without a network call to OpenAI's real embeddings API.
 """
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any
 
 import pytest
@@ -81,3 +89,26 @@ def make_engine_config():
         return EngineConfig.model_validate(data)
 
     return _make
+
+
+class FakeHashingEmbeddingsClient:
+    """`embed()` via a word-frequency hashing trick: each lowercase word
+    increments a fixed-size vector at `hash(word) % DIM`. Two texts sharing
+    most of their vocabulary land close together in cosine terms; two with
+    disjoint vocabularies land far apart -- a real (if unsophisticated)
+    embedding, not a scripted response, computed from actual text content.
+    """
+
+    DIM = 256
+
+    def embed(self, text: str, *, model: str) -> list[float]:
+        vector = [0.0] * self.DIM
+        for word in re.findall(r"[a-z0-9]+", text.lower()):
+            idx = int(hashlib.sha256(word.encode("utf-8")).hexdigest(), 16) % self.DIM
+            vector[idx] += 1.0
+        return vector
+
+
+@pytest.fixture
+def fake_embeddings_client() -> FakeHashingEmbeddingsClient:
+    return FakeHashingEmbeddingsClient()

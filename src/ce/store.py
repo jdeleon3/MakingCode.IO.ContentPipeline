@@ -225,6 +225,13 @@ def write_piece(data_root: Path, slug: str, piece: Piece) -> None:
     _dump_model(piece, piece_yaml_path(data_root, slug, piece.id))
 
 
+def list_pieces(data_root: Path, slug: str) -> list[Piece]:
+    directory = pieces_dir(data_root, slug)
+    if not directory.exists():
+        return []
+    return [_load_model(Piece, p) for p in sorted(directory.glob("*/piece.yml"))]
+
+
 # ---------------------------------------------------------------------------
 # PostRecord — flat array at data/posted.yml (not per-project)
 # ---------------------------------------------------------------------------
