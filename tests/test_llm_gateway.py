@@ -72,6 +72,7 @@ def _engine_config(**overrides) -> EngineConfig:
         "analytics": {
             "umami": {"api_url": "https://umami.example.com", "website_id": "site-1"},
         },
+        "sweep": {"topics": ["DuckDB"], "rss_feeds": []},
     }
     for key, value in overrides.items():
         data[key] = {**data[key], **value} if isinstance(value, dict) else value

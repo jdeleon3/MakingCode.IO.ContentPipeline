@@ -88,3 +88,16 @@ analytics: # EDIT THIS — self-hosted Umami instance tracking identity.site_url
   umami:
     api_url: https://umami.example.com
     website_id: 00000000-0000-0000-0000-000000000000
+
+sweep: # EDIT THIS — this operator's own demand-signal watch-list. Matched
+  # case-insensitively as a substring against HN/RSS story titles; no API
+  # key needed for either source.
+  topics:
+    - DuckDB
+    - AI agents
+    - LLM evals
+    - data engineering
+    - Astro
+  rss_feeds:
+    - https://www.reddit.com/r/dataengineering/.rss
+    - https://www.reddit.com/r/MachineLearning/.rss

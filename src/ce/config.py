@@ -168,6 +168,18 @@ class AnalyticsConfig(BaseModel):
     umami: UmamiConfig
 
 
+class SweepConfig(BaseModel):
+    # No TDD schema exists for this either (WP-16's Build line names
+    # `sweep/hn.py`/`sweep/rss.py` but §8 never lists a `sweep` section) --
+    # `topics` is this operator's own watch-list (matched case-insensitively
+    # as a substring against HN/RSS titles, no LLM classification involved),
+    # same "EDIT THIS, it's project-specific" shape as
+    # `transcription.vocabulary`. `rss_feeds` needs no API key at all (plain
+    # GET), unlike every provider section above.
+    topics: list[str] = Field(default_factory=list)
+    rss_feeds: list[str] = Field(default_factory=list)
+
+
 class EngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -181,6 +193,7 @@ class EngineConfig(BaseModel):
     harvest: HarvestConfig
     utm: UtmConfig
     analytics: AnalyticsConfig
+    sweep: SweepConfig
 
 
 def load_engine_config(path: Path | None = None) -> EngineConfig:

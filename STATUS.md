@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-15
+**Last session:** 2026-07-28 — completed WP-16 (all 16 work packages now done)
 
 ---
 
@@ -38,13 +38,89 @@
 | WP-13 | Packager & REVIEW.html | ✅ done | 394 tests passing (15 new); real Playwright/chromium acceptance test (browsers now installed on this machine) |
 | WP-14 | Site publish | ✅ done | 421 tests passing (27 new) |
 | WP-15 | Post-back & metrics | ✅ done | 449 tests passing (28 new); `UMAMI_API_KEY`/`YOUTUBE_API_KEY` now required in `doctor.py` |
-| WP-16 | Trend sweep | 🔵 **next** | independent after WP-02 |
+| WP-16 | Trend sweep | ✅ done | 460 tests passing (12 new), 1 skipped (`EXPECTED_WP` in `test_cli.py` is now empty -- every stub is built); no new doctor entry, neither source needs auth |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
 
 ---
 
 ## Deviations from the TDD
+
+- **WP-16 · no component-spec section exists anywhere in the TDD for this
+  WP at all** — not just a missing §10.10 (WP-15's gap): §10 stops at 10.9
+  `publish/site.py`, and there is no `10.10`/`10.11` for sweep either. The
+  *entire* module design below (data shapes, config, recurrence math,
+  bucket thresholds) is this session's invention, working only from the
+  one-line Build/Done-when pair in TDD 12. Confirmed by this session's
+  `wp-spec-conformance` review, which independently searched the TDD for
+  any WP-16-specific spec text rather than trusting this note.
+
+- **WP-16 · no LLM call anywhere in this module.** Unlike every other
+  harvest-side WP, the Build line names no new prompt — topic matching is
+  a plain case-insensitive substring match against a fixed,
+  operator-edited watch-list (`config.sweep.topics`), not an LLM
+  classification call. Consequence: there's nothing here to discover a
+  topic the operator didn't already think to list; a real "AI agents"
+  boom the operator never added to `config.sweep.topics` would sweep
+  right past unnoticed.
+
+- **WP-16 · a new `config.sweep` section (`topics`, `rss_feeds`) was added
+  to `engine.yml`/`config.py`** — TDD §8 has no `sweep` key at all, same
+  gap WP-15 hit for `analytics`. `topics` is the operator's own
+  demand-signal watch-list (matched case-insensitively as a substring
+  against HN/RSS titles); neither field is a secret, so both stay in
+  `engine.yml` rather than the environment.
+
+- **WP-16 · recurrence is computed purely from *prior* sweeps, never
+  blended with today's own occurrence.** `TopicRank.recurrence` counts how
+  many of the last `HISTORY_WINDOW=4` prior `sweeps/<date>.json` snapshots
+  already on disk contained the topic; today's occurrence lives on a
+  separate axis (`today_count`/`today_strength`). This is the literal
+  reading of the Done-when line's own wording ("3 of 4 **prior** sweeps")
+  and matches `BriefDemand.recurrence`'s existing TDD 5.2 comment ("sweeps
+  out of the last 4") without divergence. Ranking sorts by the tuple
+  `(recurrence, today_strength)` — Python's tuple comparison means
+  recurrence always dominates regardless of how large a same-day spike's
+  strength is, which is what actually satisfies the Done-when line, not a
+  hand-tuned weighting formula.
+
+- **WP-16 · `sweeps/<date>.json` (one per day, alongside `sweeps/<date>.md`)
+  is invented — TDD 5.4/§7's directory tree names only the `.md` file.**
+  Same "structured data lives in git, the .md is what you read" split as
+  `harvest/inventory.md` (WP-08) and `performance.md` (WP-15): recurrence
+  scoring on a later run needs to compare against the last few days'
+  *signals*, not re-parse its own rendered markdown.
+
+- **WP-16 · HN hits are re-filtered by a plain title-substring match
+  against the query topic, not trusted as already-precise from Algolia's
+  own relevance ranking.** Discovered by running a real sweep against this
+  session's own `config/engine.yml` topics: a live Algolia search for
+  "Astro" surfaced a story titled "Astronauts describe..." (Algolia does
+  stemmed/fuzzy relevance search, not literal substring matching) —
+  `collect_signals()` drops any HN hit whose title doesn't literally
+  contain the topic string, same filter RSS entries already needed.
+
+- **WP-16 · `sweep/rss.py` parses by local element name (`item` or
+  `entry`), not by RSS-vs-Atom dialect detection.** TDD names no format at
+  all for this file. Needed for real, not just in theory: this session's
+  default `config.sweep.rss_feeds` (Reddit subreddit feeds) are actually
+  Atom under a `.rss` URL path, not RSS 2.0 — verified against the real
+  feeds, not assumed.
+
+- **WP-16 · `_HN_LOOKBACK_DAYS = 2` (how far back an HN/RSS hit still
+  counts as "today's" signal) is a hardcoded constant, not a config
+  field.** TDD gives no number for this at all; a config knob for a single
+  hardcoded input felt like more machinery than the actual need, same
+  "revisit if per-project tuning turns out to matter" call WP-09 made for
+  `writer._LENGTH_TARGET`.
+
+- **WP-16 · no new `doctor.py` entry.** Every other harvest-adjacent WP
+  added a required dependency (an API key or a binary); this one doesn't
+  — the Algolia HN Search API needs no auth at all, and RSS is a plain
+  GET. Confirmed by running a real sweep against live HN + Reddit feeds
+  this session (one Reddit feed 429'd mid-run and was correctly recorded
+  as a failed source without aborting the others, proving the Done-when
+  line against real network conditions, not just a fake).
 
 - **WP-15 · no `§10.10` component spec exists anywhere in the TDD for this
   WP** (§10 stops at 10.9 `publish/site.py`) — every design choice below is
@@ -911,6 +987,19 @@
   `YouTubeDataApiClient`'s real transport are untested against live
   services as a result (tests fake both clients — see STATUS.md
   deviations); functionally complete, just not yet exercised for real.
+- **`config.sweep.topics`/`rss_feeds` (WP-16):** `config/engine.yml`'s
+  defaults (DuckDB, AI agents, LLM evals, data engineering, Astro; two
+  Reddit subreddit feeds) are this session's own illustrative starting
+  point, marked `# EDIT THIS` same as `transcription.vocabulary` — replace
+  with whatever this operator's actual beat is. `AlgoliaHNClient`/
+  `HttpxRssClient`'s real transport *was* exercised live this session
+  (unlike most other WPs' external clients) — a real sweep against these
+  exact defaults surfaced two real findings folded into the implementation
+  before close-out: Algolia's relevance search over-matches short topic
+  strings (see the WP-16 deviation on HN title-filtering), and Reddit's
+  `.rss` feeds are Atom, not RSS 2.0 (see the WP-16 deviation on
+  `sweep/rss.py`'s parser). One Reddit feed also 429'd mid-smoke-test and
+  was correctly isolated as a failed source rather than aborting the run.
 
 ---
 

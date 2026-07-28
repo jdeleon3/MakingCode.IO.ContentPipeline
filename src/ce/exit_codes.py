@@ -185,6 +185,18 @@ class MetricsError(CEError):
     exit_code = Exit.ERROR
 
 
+class SweepError(CEError):
+    """`sweep/*` (TDD 12 WP-16) failed for a reason other than a gate
+    blocking the run: a malformed RSS/Atom feed, or an Algolia HN request
+    that errored. Per-source failures during `ce sweep` are caught and
+    logged, not raised as this -- this class is for the client-level
+    failure that gets caught, not something `ce sweep` itself surfaces to
+    the operator (mirrors `MetricsError`'s per-client role).
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

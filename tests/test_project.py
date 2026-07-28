@@ -71,6 +71,7 @@ def _engine_config(repo_path: Path) -> EngineConfig:
         "analytics": {
             "umami": {"api_url": "https://umami.example.com", "website_id": "site-1"},
         },
+        "sweep": {"topics": ["DuckDB"], "rss_feeds": []},
     }
     return EngineConfig.model_validate(data)
 

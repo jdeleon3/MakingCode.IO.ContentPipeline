@@ -39,10 +39,9 @@ EXPECTED_COMMANDS = [
     ("doctor",),
 ]
 
-# Which work package implements each stub.
-EXPECTED_WP = {
-    ("sweep",): "WP-16",
-}
+# Which work package implements each stub. Empty now that WP-16 (the last
+# one) is built -- every command in EXPECTED_COMMANDS resolves for real.
+EXPECTED_WP: dict[tuple[str, ...], str] = {}
 
 
 def test_help_runs():
@@ -194,6 +193,9 @@ utm:
   template: "?utm_source={{platform}}&utm_medium=social&utm_campaign={{slug}}"
 analytics:
   umami: {{api_url: "https://umami.example.com", website_id: "site-1"}}
+sweep:
+  topics: [DuckDB]
+  rss_feeds: []
 """,
         encoding="utf-8",
     )
@@ -298,6 +300,9 @@ utm:
   template: "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"
 analytics:
   umami: {api_url: "https://umami.example.com", website_id: "site-1"}
+sweep:
+  topics: [DuckDB]
+  rss_feeds: []
 """
 
 

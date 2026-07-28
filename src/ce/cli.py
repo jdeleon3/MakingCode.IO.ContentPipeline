@@ -19,7 +19,7 @@ import typer
 from dotenv import load_dotenv
 
 from ce import __version__, console
-from ce.exit_codes import CEError, Exit, NotImplementedYet
+from ce.exit_codes import CEError, Exit
 
 app = typer.Typer(
     name="ce",
@@ -809,7 +809,34 @@ def sweep(
     sources: str = typer.Option("hn,rss", "--sources", help="Comma separated."),
 ) -> None:
     """Scan for recurring demand signals to inform project selection."""
-    raise NotImplementedYet("sweep", "WP-16")
+    from ce.config import load_engine_config
+    from ce.exit_codes import SweepError
+    from ce.sweep import scan as scan_module
+    from ce.sweep.hn import AlgoliaHNClient
+    from ce.sweep.rss import HttpxRssClient
+
+    requested = tuple(s.strip() for s in sources.split(",") if s.strip())
+    unknown = set(requested) - set(scan_module.ALL_SOURCES)
+    if unknown:
+        raise SweepError(f"unknown --sources value(s): {', '.join(sorted(unknown))}")
+
+    config = load_engine_config()
+    data_root = Path("data")
+
+    result = scan_module.scan(
+        data_root,
+        config,
+        hn_client=AlgoliaHNClient(),
+        rss_client=HttpxRssClient(),
+        sources=requested,
+    )
+
+    digest_path = data_root / "sweeps" / f"{result.date.isoformat()}.md"
+    if result.failed_sources:
+        console.warn(
+            f"{len(result.failed_sources)} source(s) failed: {', '.join(result.failed_sources)}"
+        )
+    console.success(f"swept {len(result.ranks)} topic(s) -> {digest_path}")
 
 
 @index_app.command("rebuild")

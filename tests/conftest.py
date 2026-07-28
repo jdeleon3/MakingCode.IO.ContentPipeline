@@ -76,6 +76,10 @@ def _base_engine_config_dict() -> dict[str, Any]:
         "analytics": {
             "umami": {"api_url": "https://umami.example.com", "website_id": "site-1"},
         },
+        "sweep": {
+            "topics": ["DuckDB", "AI agents"],
+            "rss_feeds": ["https://example.com/feed.rss"],
+        },
     }
 
 

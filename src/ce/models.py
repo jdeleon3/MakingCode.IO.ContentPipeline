@@ -316,3 +316,34 @@ class Rendition(BaseModel):
     chapters: list[str] = Field(default_factory=list)  # YouTube only, "MM:SS Label" lines
     prompt_version: int
     generated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Sweep (data/sweeps/<date>.json — the machine-readable half of `ce sweep`,
+# TDD 12 WP-16)
+#
+# No schema exists anywhere in the TDD for this either (same gap as
+# Rendition/GradeAttempt above) -- WP-16's Build line only names
+# `sweep/hn.py`/`sweep/rss.py`/"recurrence scoring", never a data shape.
+# `SweepSnapshot` is one day's raw signal haul, kept alongside the
+# human-readable `sweeps/<date>.md` digest so recurrence scoring on a later
+# run can compare against the last few days' *data* without re-parsing its
+# own rendered markdown.
+# ---------------------------------------------------------------------------
+
+
+class SweepSignal(BaseModel):
+    topic: str
+    source: str  # "hn" | "rss" — a free string, not an enum: same reasoning
+    # as BriefEvidence.kind above, a third source is plausible before this
+    # enum would ever get revisited.
+    title: str
+    url: str
+    strength: float = Field(ge=0.0)  # HN points, or a flat 1.0 for an RSS mention
+    at: datetime
+
+
+class SweepSnapshot(BaseModel):
+    date: date
+    signals: list[SweepSignal] = Field(default_factory=list)
+    sources_failed: list[str] = Field(default_factory=list)
