@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-12
+**Last session:** 2026-07-28 — completed WP-13
 
 ---
 
@@ -35,8 +35,8 @@
 | WP-10 | Claim verification | ✅ done | 337 tests passing (14 new) |
 | WP-11 | Asset pipeline | ✅ done | 355 tests passing (18 new); `mermaid-cli`/`playwright` now required in `doctor.py` — `ce doctor` will fail on a machine without both installed |
 | WP-12 | Renditions | ✅ done | 379 tests passing (26 new) |
-| WP-13 | Packager & REVIEW.html | 🔵 **next** | |
-| WP-14 | Site publish | ⬜ | |
+| WP-13 | Packager & REVIEW.html | ✅ done | 394 tests passing (15 new); real Playwright/chromium acceptance test (browsers now installed on this machine) |
+| WP-14 | Site publish | 🔵 **next** | |
 | WP-15 | Post-back & metrics | ⬜ | |
 | WP-16 | Trend sweep | ⬜ | independent after WP-02 |
 
@@ -45,6 +45,76 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-13 · the Done-when line's "matches the v3 §4 layout" points at a
+  section that doesn't exist.** `docs/DIY-Content-Engine-v3-Spec.md`'s
+  actual §4 is "Reversal #1 — build YouTube now, not later" (narrative
+  prose about screen-recording vs. AI avatars, not a directory tree) — the
+  only outbox-shaped thing anywhere in that document is one line in its
+  pipeline diagram, `OUTPUT: outbox/<slug>/REVIEW.html`. Resolved using TDD
+  §9's own CLI contract line instead (`ce package <piece-id> ->
+  outbox/<piece-id>/ + REVIEW.html` — keyed by piece-id, not slug) and §7's
+  directory layout. Built the smallest thing that satisfies both that and
+  ADR-006 (`REVIEW.html` + relatively-pathed images): `outbox/<piece-id>/`
+  holds `REVIEW.html` plus a flat `assets/` of every staged *output* image
+  copied as-is. Article text and rendition YAML are deliberately **not**
+  copied into the outbox — ADR-006's point is that `REVIEW.html` is the
+  single self-contained deliverable, and the site article isn't posted from
+  here at all (`ce publish site`, WP-14, ships it separately). Confirmed by
+  this session's `wp-spec-conformance` review: no better-matching "v3 §4"
+  content exists elsewhere in that document.
+
+- **WP-13 · which staged asset image a platform's REVIEW.html section shows
+  is an invented heuristic (`package/builder.py::_PLATFORM_IMAGE_PRIORITY`),
+  not a TDD rule.** No per-platform asset tagging exists anywhere in the
+  data model (WP-11's own deviations log already flagged this gap).
+  YouTube's section shows `thumbnail.png` (a literal 1280×720 dims match
+  for `config/platforms/youtube.yml`); LinkedIn/Facebook prefer the hero
+  image (the "real artifact" screenshot — the strongest asset per the v3
+  spec's own §5 table) and fall back to the thumbnail only if no hero was
+  staged, rather than showing nothing. Revisit if assets ever gain explicit
+  per-platform tags.
+
+- **WP-13 · `REVIEW.html`'s copy boxes are editable `<textarea>`s, not
+  read-only.** TDD 10.8 doesn't say either way ("copy box" + "live
+  character counter"), but a genuinely *live* counter implies the operator
+  can tweak the generated copy in-browser before copying it — the same
+  "you edit before it ships" spirit as ADR-008's `article.md` edit check,
+  just informal here since REVIEW.html has no write-back path (ADR-006:
+  no server, no localStorage). The counter recomputes on every `input`
+  event, not just once at page load.
+
+- **WP-13 · `ce package` requires at least one rendition file to already
+  exist (`renditions/*.yml`), else it raises rather than producing an empty
+  REVIEW.html.** Not a literal Done-when line, but a packaged piece with
+  zero rendered platforms has nothing for the reviewer to act on, which
+  defeats §10.8's entire purpose — same "refuse a precondition gap with a
+  clear pointer to the missing prior step" shape as `ce verify`/`ce render`
+  checking for `article.md`.
+
+- **WP-13 · `produce/renditions.py`'s `_YOUTUBE_TITLE_MAX_CHARS` (WP-12)
+  was renamed to the public `YOUTUBE_TITLE_MAX_CHARS`.** `package/builder.py`
+  needs the same number to label the YouTube title copy box's character
+  counter — one source of truth for the literal `60` (TDD §11) rather than
+  a second hardcoded copy in a different module. No behavior change, purely
+  a visibility rename; all three existing call sites in `renditions.py`
+  updated along with it.
+
+- **WP-13, cross-cutting · `playwright`/chromium got installed on this dev
+  machine this session** (WP-13's own REVIEW.html acceptance test drives a
+  real browser to prove "opens from `file://` with no network and no
+  console errors" — no string-matching assertion against raw HTML can
+  actually prove that). This flipped `ce doctor`'s playwright check from
+  missing to present, which broke one *already-closed* WP-11 test
+  (`test_assets.py::test_playwright_renderer_missing_package_is_a_clear_error`)
+  whose premise was "this dev environment genuinely has no playwright
+  installed" — no longer true. Fixed by monkeypatching
+  `sys.modules['playwright.sync_api'] = None` to force Python's real
+  `ImportError` path deterministically (the standard technique for this),
+  rather than relying on environment absence. Same shape as WP-02's
+  session-incidental ruff-lint-debt fix: a pre-existing test broken by
+  something this session did on purpose, fixed and verified, not left
+  behind.
 
 - **WP-12 · no `Rendition` schema exists anywhere in TDD 5.2 — `piece.yml`'s
   own example has no `renditions` key, and TDD 5.4/§7 only names the file
@@ -702,6 +772,15 @@
   capture target. `data/` itself is committed to git except `.llm-cache/`,
   `index.db`, `runs/`, and media (see `.gitignore`).
 - **API keys:** environment variables only, never `engine.yml` (TDD §14).
+- **Playwright + chromium:** genuinely installed on this machine as of
+  WP-13 (`ce doctor` now reports it present, not pending) — WP-13's
+  REVIEW.html acceptance test drives a real browser. `assets/codecard.py`/
+  `assets/thumbnail.py`'s `PlaywrightScreenshotRenderer` (WP-11) can now
+  also be exercised for real here, not just via the fake in tests.
+  `mermaid-cli` is still not invocable via `ce doctor` on this machine
+  (`mmdc`/`mmdc.cmd` resolve on PATH but the subprocess call fails with
+  `WinError 2`) — a pre-existing WP-11 gap, out of WP-13's scope, not
+  touched this session.
 
 ---
 

@@ -157,11 +157,25 @@ def test_lang_for_maps_known_extensions(filename, expected_lang):
     assert codecard.lang_for(Path(filename)) == expected_lang
 
 
-def test_playwright_renderer_missing_package_is_a_clear_error(tmp_path):
+def test_playwright_renderer_missing_package_is_a_clear_error(tmp_path, monkeypatch):
     """WP-11 Done-when's "clear error, not a stack trace" applies equally
-    to the Playwright seam -- this dev environment genuinely has no
-    playwright installed (confirmed via `ce doctor`), so this exercises
-    the real import-failure path, not a mock."""
+    to the Playwright seam.
+
+    This dev environment originally had no `playwright` installed at all,
+    so this exercised the real import-failure path unmocked -- WP-13 added
+    playwright+chromium to this machine (its own REVIEW.html acceptance
+    test drives a real browser), which flipped `ce doctor`'s playwright
+    check from missing to present and made the *real* import-failure path
+    permanently unreachable here. `sys.modules['playwright.sync_api'] =
+    None` is the standard way to force Python's import system to treat an
+    installed module as absent (`ImportError: ... halted; None in
+    sys.modules`) -- restores automatically via `monkeypatch` -- so this
+    still proves `codecard.py`'s except-ImportError branch, just no longer
+    for free from the environment.
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     with pytest.raises(AssetError, match="playwright"):
         codecard.PlaywrightScreenshotRenderer().screenshot_html(
             "<html></html>", tmp_path / "out.png", width=100, height=100, device_scale_factor=2

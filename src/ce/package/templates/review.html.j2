@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review -- {{ title }}</title>
+<style>
+{{ brand_css|safe }}
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 32px;
+  max-width: 900px;
+  margin-inline: auto;
+  background: var(--brand-bg, #0a0b0d);
+  color: var(--brand-fg, #ece7dd);
+  font-family: var(--brand-font, system-ui, sans-serif);
+  line-height: 1.5;
+}
+h1, h2, h3 { font-family: var(--brand-font-display, serif); font-weight: 600; }
+h1 { margin-top: 0; }
+a { color: var(--brand-accent, #259ae8); }
+.card {
+  background: var(--brand-bg-raised, #15171b);
+  border: 1px solid var(--brand-border, #26282d);
+  border-radius: var(--brand-radius, 2px);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+.warning {
+  border-left: 4px solid #e0a030;
+  background: #2a2010;
+  color: #f0d9a0;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border-radius: var(--brand-radius, 2px);
+}
+.copybox {
+  width: 100%;
+  min-height: 110px;
+  background: #0d0e10;
+  color: inherit;
+  border: 1px solid var(--brand-border, #26282d);
+  border-radius: var(--brand-radius, 2px);
+  padding: 10px;
+  font-family: var(--brand-mono, monospace);
+  font-size: 14px;
+  resize: vertical;
+}
+.counter { font-size: 13px; margin: 4px 0 10px; color: var(--brand-fg-muted, #8d8d86); }
+.counter.over { color: #e0524f; font-weight: 600; }
+button.copy-btn {
+  background: var(--brand-accent, #259ae8);
+  color: #08131c;
+  border: none;
+  border-radius: var(--brand-radius, 2px);
+  padding: 7px 16px;
+  font-weight: 600;
+  font-family: var(--brand-font, system-ui, sans-serif);
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+button.copy-btn:active { transform: translateY(1px); }
+.image-item { margin: 10px 0; }
+.image-item img {
+  max-width: 240px;
+  max-height: 240px;
+  display: block;
+  margin-top: 8px;
+  border: 1px solid var(--brand-border, #26282d);
+  border-radius: var(--brand-radius, 2px);
+}
+ul.checklist, ol.checklist { list-style: none; padding-left: 0; }
+ul.checklist li, ol.checklist li { margin: 8px 0; }
+.footer input[type="url"] {
+  width: 100%;
+  padding: 8px;
+  margin: 4px 0 14px;
+  background: #0d0e10;
+  color: inherit;
+  border: 1px solid var(--brand-border, #26282d);
+  border-radius: var(--brand-radius, 2px);
+  font-family: var(--brand-mono, monospace);
+}
+.footer label { font-weight: 600; text-transform: capitalize; }
+pre.generated {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0d0e10;
+  padding: 12px;
+  border-radius: var(--brand-radius, 2px);
+  border: 1px solid var(--brand-border, #26282d);
+  min-height: 1.5em;
+}
+.debugger-link { display: inline-block; margin: 8px 0 14px; }
+</style>
+</head>
+<body>
+
+<header class="card">
+  <h1>{{ title }}</h1>
+  <p><strong>Canonical URL:</strong> <a href="{{ canonical_url }}">{{ canonical_url }}</a></p>
+  {% if published_url %}
+  <p><strong>Published:</strong> <a href="{{ published_url }}">{{ published_url }}</a>{% if published_at %} at {{ published_at }}{% endif %}</p>
+  {% else %}
+  <p><strong>Published:</strong> not yet published{% if generated_at %} (drafted {{ generated_at }}){% endif %}</p>
+  {% endif %}
+</header>
+
+<section class="card">
+  <h2>Manual screenshot review</h2>
+  <div class="warning">{{ screenshot_warning }}</div>
+  {% if images %}
+  <ul class="checklist">
+    {% for img in images %}
+    <li class="image-item">
+      <label><input type="checkbox"> {{ img }}</label>
+      <img src="{{ img }}" alt="{{ img }}" loading="lazy">
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No images staged for this piece.</p>
+  {% endif %}
+</section>
+
+{% for p in platforms %}
+<section class="card platform" data-platform="{{ p.name }}">
+  <h2>{{ p.label }}</h2>
+
+  <h3>Posting order</h3>
+  <ol class="checklist">
+    {% for step in p.posting_steps %}
+    <li><label><input type="checkbox"> {{ step }}</label></li>
+    {% endfor %}
+  </ol>
+
+  {% if p.debugger_url %}
+  <a class="debugger-link" href="{{ p.debugger_url }}" target="_blank" rel="noopener">Run the Sharing Debugger first &rarr;</a>
+  {% endif %}
+
+  {% if p.name == "youtube" %}
+  <h3>1. Title</h3>
+  <textarea class="copybox" id="{{ p.name }}-title" rows="2">{{ p.title }}</textarea>
+  <div class="counter" data-for="{{ p.name }}-title" data-limit="{{ p.title_max_chars }}"></div>
+  <div><button class="copy-btn" data-copy="{{ p.name }}-title">Copy title</button></div>
+
+  <h3>2. Description</h3>
+  <textarea class="copybox" id="{{ p.name }}-body">{{ p.body }}</textarea>
+  <div class="counter" data-for="{{ p.name }}-body" data-limit="{{ p.max_chars }}"></div>
+  <div><button class="copy-btn" data-copy="{{ p.name }}-body">Copy description</button></div>
+
+  <h3>3. Chapters</h3>
+  <textarea class="copybox" id="{{ p.name }}-chapters" rows="4">{{ p.chapters_text }}</textarea>
+  <div><button class="copy-btn" data-copy="{{ p.name }}-chapters">Copy chapters</button></div>
+  {% else %}
+  <h3>1. Post this</h3>
+  <textarea class="copybox" id="{{ p.name }}-body">{{ p.body }}</textarea>
+  <div class="counter" data-for="{{ p.name }}-body" data-limit="{{ p.max_chars }}"></div>
+  <div><button class="copy-btn" data-copy="{{ p.name }}-body">Copy post</button></div>
+
+  {% if p.first_comment %}
+  <h3>2. Then comment this</h3>
+  <textarea class="copybox" id="{{ p.name }}-comment" rows="2">{{ p.first_comment }}</textarea>
+  <div><button class="copy-btn" data-copy="{{ p.name }}-comment">Copy comment</button></div>
+  {% endif %}
+  {% endif %}
+
+  {% if p.image_path %}
+  <div class="image-item">
+    <strong>Image:</strong> {{ p.image_path }}
+    <img src="{{ p.image_path }}" alt="{{ p.image_path }}" loading="lazy">
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="card footer">
+  <h2>Record the posted URLs</h2>
+  <p>Paste each live post URL below, then click Generate to build the <code>ce posted</code> commands.</p>
+  {% for name in post_platforms %}
+  <label for="url-{{ name }}">{{ name }}</label>
+  <input type="url" id="url-{{ name }}" placeholder="https://...">
+  {% endfor %}
+  <div><button class="copy-btn" id="generate-btn">Generate command</button></div>
+  <pre class="generated" id="generated-commands"></pre>
+  <div><button class="copy-btn" data-copy="generated-commands">Copy commands</button></div>
+</section>
+
+<script>
+(function () {
+  var PIECE_ID = {{ piece_id_json|safe }};
+  var POST_PLATFORMS = {{ post_platforms_json|safe }};
+
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function textOf(el) {
+    if (!el) return '';
+    return ('value' in el) ? el.value : el.textContent;
+  }
+
+  function flashButton(btn, ok) {
+    var original = btn.textContent;
+    btn.textContent = ok ? 'Copied!' : 'Copy failed';
+    setTimeout(function () { btn.textContent = original; }, 1500);
+  }
+
+  function copyFrom(btn) {
+    var el = document.getElementById(btn.getAttribute('data-copy'));
+    var text = textOf(el);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { flashButton(btn, true); },
+        function () { flashButton(btn, fallbackCopy(text)); }
+      );
+    } else {
+      flashButton(btn, fallbackCopy(text));
+    }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-copy]'), function (btn) {
+    btn.addEventListener('click', function () { copyFrom(btn); });
+  });
+
+  function updateCounter(counter) {
+    var el = document.getElementById(counter.getAttribute('data-for'));
+    var limit = parseInt(counter.getAttribute('data-limit'), 10);
+    var len = textOf(el).length;
+    counter.textContent = len + ' / ' + limit;
+    counter.classList.toggle('over', len > limit);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.counter[data-for]'), function (counter) {
+    var el = document.getElementById(counter.getAttribute('data-for'));
+    if (el) {
+      el.addEventListener('input', function () { updateCounter(counter); });
+    }
+    updateCounter(counter);
+  });
+
+  var generateBtn = document.getElementById('generate-btn');
+  if (generateBtn) {
+    generateBtn.addEventListener('click', function () {
+      var lines = [];
+      POST_PLATFORMS.forEach(function (name) {
+        var input = document.getElementById('url-' + name);
+        var value = input ? input.value.trim() : '';
+        if (value) {
+          lines.push('ce posted ' + PIECE_ID + ' --platform ' + name + ' --url ' + value);
+        }
+      });
+      document.getElementById('generated-commands').textContent =
+        lines.length ? lines.join('\n') : '(enter at least one URL above)';
+    });
+  }
+})();
+</script>
+</body>
+</html>

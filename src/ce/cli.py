@@ -628,7 +628,43 @@ def render(
 @app.command("package")
 def package(piece_id: str = typer.Argument(...)) -> None:
     """Assemble outbox/<piece-id>/ including REVIEW.html."""
-    raise NotImplementedYet("package", "WP-13")
+    from ce import store
+    from ce.config import load_engine_config, load_platform_config
+    from ce.package import builder as builder_module
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    brief = next(
+        (b for b in store.read_briefs(data_root, project.slug) if b.id == piece.brief_id), None
+    )
+    if brief is None:
+        raise CEError(f"brief {piece.brief_id!r} (piece {piece_id!r}'s source) no longer exists")
+
+    config = load_engine_config()
+    platform_configs = {
+        name: load_platform_config(Path("config/platforms") / f"{name}.yml")
+        for name in ("linkedin", "facebook", "youtube")
+    }
+
+    result = builder_module.package(
+        piece,
+        brief,
+        project,
+        data_root=data_root,
+        outbox_root=Path("outbox"),
+        config=config,
+        platform_configs=platform_configs,
+    )
+
+    console.success(f"wrote {result.review_html_path}")
+    console.out(
+        f"{len(result.image_paths)} image(s), {len(result.platforms)} platform rendition(s) "
+        f"packaged in {result.outbox_dir}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("package",): "WP-13",
     ("publish", "site"): "WP-14",
     ("posted",): "WP-15",
     ("sweep",): "WP-16",
@@ -89,7 +88,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("package",): ["pc-0001"],
         ("publish", "site"): ["pc-0001"],
         ("posted",): ["pc-0001", "--platform", "linkedin", "--url", "https://x.test/1"],
     }
@@ -1195,6 +1193,184 @@ def test_render_linkedin_end_to_end(tmp_path, monkeypatch):
     rendition = store.read_rendition(data_root, "test-proj", "pc-0001", "linkedin")
     assert rendition.body == body
     assert utm_url in rendition.first_comment
+
+
+# --- package (WP-13, TDD 12 "Done when") -------------------------------------
+
+
+def test_package_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce package` used to raise `NotImplementedYet("package", "WP-13")`;
+    now it should reach real logic (and fail on an unknown piece, not on
+    "not implemented yet")."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["package", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_package_requires_a_rendition_first(tmp_path, monkeypatch):
+    """A piece with `ce render` never run has nothing to review -- refused
+    with a hint, not an empty REVIEW.html."""
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.models import Brief, BriefDemand, GroundingStrength, Piece, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    (tmp_path / "config" / "platforms").mkdir(parents=True, exist_ok=True)
+    for name in ("linkedin", "facebook", "youtube"):
+        shutil.copy(
+            Path(__file__).parent.parent / "config" / "platforms" / f"{name}.yml",
+            tmp_path / "config" / "platforms" / f"{name}.yml",
+        )
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+
+    result = runner.invoke(cli.app, ["package", "pc-0001"])
+
+    assert result.exit_code == Exit.ERROR
+    assert "render" in str(result.exception)
+
+
+def test_package_end_to_end(tmp_path, monkeypatch):
+    """Wires `ce package` through the real CLI command: a piece with a
+    LinkedIn rendition and a staged hero image produces
+    `outbox/<id>/REVIEW.html` embedding the rendition's copy and
+    referencing the copied image -- and never copies the staged
+    `hero-source.*` *input* alongside the rendered `hero.*` *output*.
+    """
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.models import (
+        Brief,
+        BriefDemand,
+        GroundingStrength,
+        Piece,
+        PostPlatform,
+        Project,
+        Rendition,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    (tmp_path / "config" / "platforms").mkdir(parents=True, exist_ok=True)
+    for name in ("linkedin", "facebook", "youtube"):
+        shutil.copy(
+            Path(__file__).parent.parent / "config" / "platforms" / f"{name}.yml",
+            tmp_path / "config" / "platforms" / f"{name}.yml",
+        )
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+
+    utm_url = (
+        "https://example.com/blog/a-piece"
+        "?utm_source=linkedin&utm_medium=social&utm_campaign=a-piece"
+    )
+    linkedin_body = "A" * 50 + "."
+    store.write_rendition(
+        data_root,
+        "test-proj",
+        "pc-0001",
+        Rendition(
+            platform=PostPlatform.LINKEDIN,
+            body=linkedin_body,
+            first_comment=f"Link in the comments: {utm_url}",
+            prompt_version=1,
+            generated_at=datetime.now(UTC),
+        ),
+    )
+
+    assets_dir = store.piece_dir(data_root, "test-proj", "pc-0001") / "assets"
+    assets_dir.mkdir(parents=True)
+    (assets_dir / "hero.jpg").write_bytes(b"fake-jpeg-bytes")
+    (assets_dir / "hero-source.jpg").write_bytes(b"fake-jpeg-bytes")
+
+    result = runner.invoke(cli.app, ["package", "pc-0001"])
+
+    assert result.exit_code == Exit.OK, result.output
+
+    outbox_dir = tmp_path / "outbox" / "pc-0001"
+    review_html = (outbox_dir / "REVIEW.html").read_text(encoding="utf-8")
+    assert "Why this project" in review_html
+    assert linkedin_body in review_html
+    # Jinja2 autoescape turns "&" into "&amp;" inside the <textarea> --
+    # correct HTML (browsers decode it back on `.value` read); compare
+    # against the escaped form rather than the raw URL.
+    assert utm_url.replace("&", "&amp;") in review_html
+    assert "assets/hero.jpg" in review_html
+    assert "hero-source" not in review_html
+
+    assert (outbox_dir / "assets" / "hero.jpg").exists()
+    assert not (outbox_dir / "assets" / "hero-source.jpg").exists()
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

@@ -46,7 +46,10 @@ DEFAULT_PLATFORMS: tuple[str, ...] = ("linkedin", "facebook", "youtube")
 # line itself, not a config field (unlike max_chars/hook_chars, which are
 # genuinely per-platform). Same "hardcode a single literal rather than add
 # a config field for one use site" call as writer.py's `_LENGTH_TARGET`.
-_YOUTUBE_TITLE_MAX_CHARS = 60
+# Public (not `_`-prefixed) because `package/builder.py` (WP-13) needs the
+# same number to label the title copy box's character counter in
+# REVIEW.html -- one source of truth rather than a second hardcoded 60.
+YOUTUBE_TITLE_MAX_CHARS = 60
 
 _MAX_REGENERATION_ATTEMPTS = 1  # TDD 10.6: "one regeneration attempt ... then exit 1"
 
@@ -175,8 +178,8 @@ def _validate_youtube(
 ) -> list[str]:
     violations = _validate_common(description, cfg)
 
-    if len(title) > _YOUTUBE_TITLE_MAX_CHARS:
-        violations.append(f"title is {len(title)} chars, exceeds {_YOUTUBE_TITLE_MAX_CHARS}")
+    if len(title) > YOUTUBE_TITLE_MAX_CHARS:
+        violations.append(f"title is {len(title)} chars, exceeds {YOUTUBE_TITLE_MAX_CHARS}")
     if not title.strip():
         violations.append("title is empty")
 
@@ -263,7 +266,7 @@ def _render_youtube(
             {
                 "article": article,
                 "canonical_url": url,
-                "title_max_chars": _YOUTUBE_TITLE_MAX_CHARS,
+                "title_max_chars": YOUTUBE_TITLE_MAX_CHARS,
                 "description_hook_chars": cfg.hook_chars,
                 "prior_violation": prior_violation,
             },
