@@ -12,7 +12,7 @@ The table below is the single place to do that.
 
     WP-02  ANTHROPIC_API_KEY (done)
     WP-04  ffmpeg, OPENAI_API_KEY (done)
-    WP-05  gitleaks
+    WP-05  gitleaks (done)
     WP-11  mermaid-cli, playwright + chromium
 """
 
@@ -178,7 +178,7 @@ CHECKS: list[Check] = [
     Check(
         name="gitleaks",
         probe=check_gitleaks,
-        required=False,
+        required=True,
         needed_for="WP-05",
         install="winget install gitleaks   (or scoop install gitleaks)",
     ),

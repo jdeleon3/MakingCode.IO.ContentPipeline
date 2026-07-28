@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-04
+**Last session:** 2026-07-27 — completed WP-05
 
 ---
 
@@ -27,8 +27,8 @@
 | WP-02 | LLM gateway | ✅ done | 131 tests passing (31 new); `ANTHROPIC_API_KEY` now required in `doctor.py` |
 | WP-03 | Project lifecycle | ✅ done | 155 tests passing (24 new) |
 | WP-04 | Capture & transcription | ✅ done | 188 tests passing (33 new); `ffmpeg`/`OPENAI_API_KEY` now required in `doctor.py` |
-| WP-05 | Git harvest & safety gates ⚠️ | 🔵 **next** | flip `gitleaks` to required. Planted-secret test is mandatory. |
-| WP-06 | Index & dedupe | ⬜ | |
+| WP-05 | Git harvest & safety gates ⚠️ | ✅ done | 225 tests passing (37 new); `gitleaks` now required in `doctor.py` |
+| WP-06 | Index & dedupe | 🔵 **next** | |
 | WP-07 | External research | ⬜ | |
 | WP-08 | Inventory generator (MATCH) ⭐ | ⬜ | **MVP milestone** — usable system after this |
 | WP-09 | Writer & grader | ⬜ | |
@@ -45,6 +45,56 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-05 · `harvest/git.py`'s `git.json` is `{"repos": [...]}`, one entry
+  per `project.repos`, not the single flat object TDD 10.3's example
+  shows.** `Project.repos` (WP-01) is a list precisely because a project
+  can harvest more than one repo (TDD 5.2's `client-thing` example) — the
+  TDD's literal flat shape has nowhere to put a second one. Every field
+  10.3 names (`repo`, `range`, `total_commits`, `kept`, `dropped`,
+  `commits`, `redaction`) is present unchanged, one level down inside each
+  `RepoHarvest`.
+
+- **WP-05 · `gitleaks` is reached through a `SecretScanner` Protocol
+  (`gates/secrets.py`), tested via a fake; the real `GitleaksScanner` is
+  exercised only manually.** Same shape and same reason as WP-04's
+  ffmpeg/transcription seams: this dev/build environment has no `gitleaks`
+  binary at all (confirmed via `ce doctor`), so the automated suite can't
+  invoke it regardless of preference. The mandatory planted-secret test
+  (TDD 12/13) still proves real detection: the fake scanner does actual
+  regex matching (`AKIA[0-9A-Z]{16}`) against real file content in a real,
+  throwaway fixture repo, not a scripted "yes, blocked" response. `git`
+  itself **is** installed here, so `git log` parsing, the deny-list filter,
+  and significance scoring all run for real, unfaked.
+
+- **WP-05 · the deny-list (TDD 6.2) is enforced as "does any path component
+  match this glob", not literal whole-path glob matching.** Every pattern
+  in the fixed list (`.env*`, `secrets/`, `**/fixtures/**`, etc.) reduces to
+  exactly one meaningful path segment once directory markers and `**`
+  traversal segments are stripped — there's nothing in the list that needs
+  to match more than one component at a time, so `gates/secrets.py`'s
+  `is_denied()` checks each path component against that reduced set via
+  `fnmatch` rather than hand-rolling `**`-aware regex translation.
+
+- **WP-05 · the 30-commit significance-scoring golden fixture (TDD 12/13)
+  is a real git repo built at test time
+  (`tests/test_harvest_git.py::_build_significance_fixture`), not a
+  committed `.git` directory under `tests/fixtures/`.** A nested `.git`
+  checked into this repo would be tracked as an embedded-repo gitlink
+  rather than real content unless deliberately set up as a submodule —
+  building it programmatically with controlled commit dates
+  (`GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE`) is both simpler and lets the test
+  control exact gaps between commits (needed for the `war_story`/reversal
+  rules) precisely. The golden *expected values* are still a static,
+  hand-reviewable file (`tests/golden/significance-scoring.json`) per TDD
+  §13, diffed against fresh output rather than regenerated inline.
+
+- **WP-05 · `harvest/git.py::extract()` calls G1 before *any* git
+  subprocess (including `git ls-files` inside the G2 secret scan), not
+  only before `git log`.** TDD 10.3 lists G1 as step 1 and the secret scan
+  as step 4, which already implies this ordering, but it's called out here
+  because the mandatory allowlist test (TDD 13 #1) asserts zero
+  `subprocess.run` calls of any kind, not just zero `git log` calls.
 
 - **WP-04 · `ffmpeg`/OpenAI transcription reached through injectable
   `Preprocessor`/`Splitter`/`TranscriptionClient` Protocols, tested via

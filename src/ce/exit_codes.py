@@ -107,6 +107,14 @@ class CaptureError(CEError):
     exit_code = Exit.ERROR
 
 
+class HarvestError(CEError):
+    """A git harvest step failed (TDD 10.3) for a reason other than a gate
+    blocking the run: `git log` itself failed, the path isn't a git repo, etc.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 
