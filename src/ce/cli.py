@@ -678,7 +678,58 @@ def publish_site(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print frontmatter and file plan only."),
 ) -> None:
     """Publish to the static site and verify OG tags before packaging renditions."""
-    raise NotImplementedYet("publish site", "WP-14")
+    from ce import store
+    from ce.config import load_engine_config
+    from ce.publish import site as site_module
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    brief = next(
+        (b for b in store.read_briefs(data_root, project.slug) if b.id == piece.brief_id), None
+    )
+    if brief is None:
+        raise CEError(f"brief {piece.brief_id!r} (piece {piece_id!r}'s source) no longer exists")
+
+    article_path = store.piece_dir(data_root, project.slug, piece.id) / piece.article_path
+    if not article_path.exists():
+        raise CEError(f"{article_path} does not exist -- run `ce produce {piece_id}` first")
+
+    config = load_engine_config()
+
+    if dry_run:
+        built_plan = site_module.plan(
+            piece,
+            brief,
+            project,
+            article_path.read_text(encoding="utf-8"),
+            data_root=data_root,
+            site_url=config.identity.site_url,
+        )
+        console.out(f"would write {config.identity.site_repo / built_plan.content_path}")
+        if built_plan.hero_dest:
+            console.out(
+                f"would copy {built_plan.hero_source} -> "
+                f"{config.identity.site_repo / built_plan.hero_dest}"
+            )
+        console.out("")
+        console.out(built_plan.content_text)
+        return
+
+    published = site_module.publish(
+        piece,
+        brief,
+        project,
+        data_root=data_root,
+        site_repo=config.identity.site_repo,
+        site_url=config.identity.site_url,
+        http_client=site_module.HttpxClient(),
+    )
+
+    console.success(f"published {piece_id} -> {published.published.url}")
 
 
 @app.command("posted")

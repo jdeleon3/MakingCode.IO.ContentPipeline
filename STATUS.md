@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-13
+**Last session:** 2026-07-28 — completed WP-14
 
 ---
 
@@ -36,8 +36,8 @@
 | WP-11 | Asset pipeline | ✅ done | 355 tests passing (18 new); `mermaid-cli`/`playwright` now required in `doctor.py` — `ce doctor` will fail on a machine without both installed |
 | WP-12 | Renditions | ✅ done | 379 tests passing (26 new) |
 | WP-13 | Packager & REVIEW.html | ✅ done | 394 tests passing (15 new); real Playwright/chromium acceptance test (browsers now installed on this machine) |
-| WP-14 | Site publish | 🔵 **next** | |
-| WP-15 | Post-back & metrics | ⬜ | |
+| WP-14 | Site publish | ✅ done | 421 tests passing (27 new) |
+| WP-15 | Post-back & metrics | 🔵 **next** | |
 | WP-16 | Trend sweep | ⬜ | independent after WP-02 |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
@@ -45,6 +45,51 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-14 · `publish/site.py`'s frontmatter omits TDD 10.9's literal
+  `canonical` key.** Inspected the real site repo this session
+  (`identity.site_repo`, an Astro project) rather than guessing:
+  `src/content.config.ts`'s blog collection schema has no `canonical` field
+  (Zod's default `z.object()` behavior silently strips unknown keys, so
+  writing one would be inert at best), and `src/components/BaseHead.astro`
+  already computes `<link rel="canonical">` and every `og:*`/`twitter:*` tag
+  from `Astro.url`/`Astro.site` automatically. The canonical URL this WP
+  actually needs (to poll, and to write `piece.published.url`) reuses
+  WP-12's `produce/renditions.py::canonical_url`
+  (`site_url + "/blog/" + slug`) rather than a second copy. Confirmed
+  independently by this session's `wp-spec-conformance` review, which read
+  the site repo's schema/layout itself rather than trusting this note.
+
+- **WP-14 · `--no-edit-check` (ADR-008's own language) is a keyword
+  parameter on `publish/site.py::publish()`, not a CLI flag.** TDD 9's
+  literal CLI contract line for this exact command --
+  `ce publish site <piece-id> [--dry-run]` -- lists no such flag, and
+  ADR-008 never says which command should surface it. Read literally: the
+  bypass exists for this module's own test suite to call directly ("for
+  testing only"), not as an operator-facing escape hatch on
+  `ce publish site`.
+
+- **WP-14 · no `description` field exists anywhere in the data model**
+  (`Piece`, `Brief`, `Project`) to carry an OG description. Same gap WP-08
+  hit for its dedupe "one-line summary":
+  `publish/site.py::_description_from_body` uses the article body's first
+  non-blank, non-heading line, truncated to 155 chars (a common OG/meta-
+  description soft limit, not a TDD number).
+
+- **WP-14 · the hero image copied into the site repo is namespaced by the
+  piece's slug** (`src/assets/blog/<slug>.<ext>`), not a fixed `hero.<ext>`
+  name. Unlike a piece's own `assets/` directory (one piece per folder),
+  the site repo's asset directory is shared across every published piece --
+  a fixed name would collide on the second post.
+
+- **WP-14 · git commit/push uses direct `subprocess` calls
+  (`publish/site.py::commit_and_push`), not an injectable Protocol**,
+  matching `harvest/git.py`'s existing precedent (git itself is a required
+  system dependency since WP-00, not a swappable provider). The HTTP
+  polling/OG-tag-fetch client (`HttpClient` Protocol, `HttpxClient` the real
+  implementation) *is* injectable, same DI shape as `harvest/research.py`'s
+  `SearchClient`/`FetchClient` -- tests fake it rather than hitting the
+  network or sleeping the real 120s default.
 
 - **WP-13 · the Done-when line's "matches the v3 §4 layout" points at a
   section that doesn't exist.** `docs/DIY-Content-Engine-v3-Spec.md`'s

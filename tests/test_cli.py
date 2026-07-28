@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("publish", "site"): "WP-14",
     ("posted",): "WP-15",
     ("sweep",): "WP-16",
 }
@@ -88,7 +87,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("publish", "site"): ["pc-0001"],
         ("posted",): ["pc-0001", "--platform", "linkedin", "--url", "https://x.test/1"],
     }
     return required.get(command, [])
@@ -1371,6 +1369,99 @@ def test_package_end_to_end(tmp_path, monkeypatch):
 
     assert (outbox_dir / "assets" / "hero.jpg").exists()
     assert not (outbox_dir / "assets" / "hero-source.jpg").exists()
+
+
+# --- publish site (WP-14, TDD 12 "Done when") -------------------------------
+#
+# Module-level coverage (frontmatter/file-plan shape, the edit/verify
+# preconditions, OG tag assertion, poll timeout) lives in
+# tests/test_publish_site.py, same split WP-13 used for package/review_html.
+# These wire the real CLI command and check its dry-run/exit-code contract.
+
+
+def test_publish_site_is_wired_not_a_stub(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["publish", "site", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def _write_publishable_piece(tmp_path, *, generated_at):
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.models import Brief, BriefDemand, GroundingStrength, Piece, Project
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+            )
+        ],
+    )
+    piece = Piece(
+        id="pc-0001",
+        brief_id="br-01",
+        project="test-proj",
+        slug="a-piece",
+        created_at=datetime.now(UTC),
+        article_path=Path("article.md"),
+        generated_at=generated_at,
+    )
+    store.write_piece(data_root, "test-proj", piece)
+    (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").write_text(
+        "# Why this project\n\nBody text here.\n", encoding="utf-8"
+    )
+    return data_root
+
+
+def test_publish_site_dry_run_prints_frontmatter_and_file_plan_without_writing(
+    tmp_path, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)  # identity.site_repo: ~/code/site -- never touched
+    _write_publishable_piece(tmp_path, generated_at=datetime.now(UTC) - timedelta(days=1))
+
+    result = runner.invoke(cli.app, ["publish", "site", "pc-0001", "--dry-run"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "would write" in result.output
+    assert "src/content/blog/a-piece.md" in result.output.replace("\\", "/")
+    assert "title: Why this project" in result.output
+    assert "pubDate:" in result.output
+
+
+def test_publish_site_blocks_an_unedited_article_with_exit_4(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from ce.exit_codes import PreconditionUnmet
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    _write_publishable_piece(tmp_path, generated_at=datetime.now(UTC) + timedelta(days=1))
+
+    result = runner.invoke(cli.app, ["publish", "site", "pc-0001"])
+
+    assert isinstance(result.exception, PreconditionUnmet)
+    assert result.exception.exit_code == Exit.PRECONDITION
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

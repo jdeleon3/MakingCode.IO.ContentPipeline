@@ -165,6 +165,17 @@ class RenditionError(CEError):
     exit_code = Exit.ERROR
 
 
+class PublishError(CEError):
+    """`publish/site.py` (TDD 10.9, 12 WP-14) failed for a reason other than
+    a precondition gate: `git add`/`commit`/`push` to `identity.site_repo`
+    failed, the canonical URL never returned 200 within the poll window, or
+    the built page is missing/empty `og:title`/`og:description`/`og:image`
+    once it did.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 
