@@ -16,6 +16,7 @@ annotations have historically confused it for Optional/List parameters.
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 
 from ce import __version__, console
 from ce.exit_codes import CEError, Exit, NotImplementedYet
@@ -136,18 +137,38 @@ def project_close(
 # ---------------------------------------------------------------------------
 
 
+def _report_batch(outcome) -> None:
+    """Shared tail end of `--dir` batch mode: print failures, then a
+    summary. Exits non-zero only if *everything* failed — a partial batch
+    is a reported outcome, not an error (skip-and-continue by design)."""
+    for path, error in outcome.failed:
+        console.failure(f"{path.name}: {error}")
+    if not outcome.succeeded and not outcome.failed:
+        console.out("(no matching files found)")
+        return
+    console.out(f"\n{len(outcome.succeeded)} succeeded, {len(outcome.failed)} failed")
+    if outcome.failed and not outcome.succeeded:
+        raise typer.Exit(Exit.ERROR)
+
+
 @capture_app.command("audio")
 def capture_audio(
-    file: Path = typer.Argument(..., help="Audio file to ingest."),
+    file: Path | None = typer.Argument(None, help="Audio file to ingest. Omit with --dir."),
     project: str = typer.Option(..., "--project", "-p", help="Project slug."),
+    folder: Path | None = typer.Option(
+        None, "--dir", help="Batch-ingest every audio file in this folder."
+    ),
     moment: str = typer.Option("in_situ", "--moment", help="in_situ|retro"),
     context: str | None = typer.Option(None, "--context", help="One line: what was happening."),
 ) -> None:
-    """Ingest and transcribe an audio capture."""
+    """Ingest and transcribe an audio capture, or a whole folder with --dir."""
     from ce.capture import audio as audio_capture
     from ce.config import load_engine_config
     from ce.llm.gateway import Gateway
     from ce.models import CaptureMoment
+
+    if (file is None) == (folder is None):
+        raise CEError("pass exactly one of FILE or --dir")
 
     try:
         moment_enum = CaptureMoment(moment)
@@ -155,21 +176,52 @@ def capture_audio(
         raise CEError(f"unknown --moment {moment!r}, expected in_situ|retro") from None
 
     data_root = Path("data")
-    captured = audio_capture.ingest(data_root, file, project, moment=moment_enum, context=context)
     config = load_engine_config()
     gateway = Gateway(config, data_root=data_root)
+
+    if folder is not None:
+        outcome = audio_capture.ingest_and_transcribe_batch(
+            data_root,
+            folder,
+            project,
+            config,
+            gateway=gateway,
+            moment=moment_enum,
+            context=context,
+        )
+        for captured in outcome.succeeded:
+            console.success(f"captured and transcribed {captured.id} ({captured.source_path.name})")
+        _report_batch(outcome)
+        return
+
+    captured = audio_capture.ingest(data_root, file, project, moment=moment_enum, context=context)
     transcribed = audio_capture.transcribe(data_root, captured, config, gateway=gateway)
     console.success(f"captured and transcribed {transcribed.id}")
 
 
 @capture_app.command("screen")
 def capture_screen(
-    file: Path = typer.Argument(...),
+    file: Path | None = typer.Argument(None, help="Screenshot/screencast file. Omit with --dir."),
     project: str = typer.Option(..., "--project", "-p", help="Project slug."),
+    folder: Path | None = typer.Option(
+        None, "--dir", help="Batch-ingest every screenshot/screencast in this folder."
+    ),
     context: str | None = typer.Option(None, "--context"),
 ) -> None:
-    """Ingest a screenshot or screencast."""
+    """Ingest a screenshot or screencast, or a whole folder with --dir."""
     from ce.capture import ingest as capture_ingest
+
+    if (file is None) == (folder is None):
+        raise CEError("pass exactly one of FILE or --dir")
+
+    if folder is not None:
+        outcome = capture_ingest.ingest_screen_batch(Path("data"), folder, project, context=context)
+        for captured in outcome.succeeded:
+            console.success(
+                f"captured {captured.id} ({captured.type.value}, {captured.source_path.name})"
+            )
+        _report_batch(outcome)
+        return
 
     captured = capture_ingest.ingest_screen(Path("data"), file, project, context=context)
     console.success(f"captured {captured.id} ({captured.type.value})")
@@ -217,8 +269,79 @@ def harvest(
     """Extract git history, transcribe pending audio, research, and build the brief inventory.
 
     Gates G1 (allowlist) and G2 (secrets) run first and cannot be bypassed by --force.
+
+    `--force` is accepted for CLI-contract completeness (TDD 9) but isn't
+    yet meaningfully enforced: neither `harvest/git.py`'s `extract()` nor
+    `harvest/research.py`'s `research()` implement stage-level resumability
+    (WP-05/WP-07 didn't need it to meet their own Done-when criteria), so
+    there is no "unchanged inputs" state to skip yet. Revisit once a real
+    manifest scheme is designed for the whole harvest stage.
     """
-    raise NotImplementedYet("harvest", "WP-08")
+    from ce import index as index_module
+    from ce import store
+    from ce.capture import audio as audio_capture
+    from ce.config import load_engine_config
+    from ce.harvest import git as git_harvest_module
+    from ce.harvest import inventory as inventory_module
+    from ce.harvest import research as research_module
+    from ce.llm.gateway import Gateway
+    from ce.models import CaptureType
+
+    data_root = Path("data")
+    config = load_engine_config()
+    proj = store.read_project(data_root, project)
+    gateway = Gateway(config, data_root=data_root)
+    harvest_dir = store.harvest_dir(data_root, project)
+
+    git_harvest = git_harvest_module.extract(
+        proj,
+        config.harvest.git.lookback_days,
+        gateway=gateway,
+        harvest_dir=harvest_dir,
+        min_significance=config.harvest.git.min_significance,
+    )
+
+    for capture in store.list_captures(data_root, project):
+        if capture.type == CaptureType.AUDIO:
+            audio_capture.transcribe(data_root, capture, config, gateway=gateway)
+    captures = store.list_captures(data_root, project)
+
+    if skip_research:
+        research_harvest = research_module.ResearchHarvest(sources=[])
+    else:
+        query = proj.selection.hypothesis or proj.title
+        search_client = research_module.build_search_client(config.harvest.research.provider)
+        research_harvest = research_module.research(
+            query,
+            gateway=gateway,
+            harvest_dir=harvest_dir,
+            max_sources=config.harvest.research.max_sources,
+            search_client=search_client,
+        )
+
+    dedupe_conn = index_module.connect(data_root / "index.db")
+    try:
+        briefs = inventory_module.generate(
+            proj,
+            git_harvest,
+            research_harvest,
+            captures,
+            data_root=data_root,
+            gateway=gateway,
+            dedupe=inventory_module.DedupeSettings(
+                conn=dedupe_conn,
+                embeddings_client=index_module.OpenAIEmbeddingsClient(),
+                embeddings_model=config.embeddings.model,
+                threshold=config.gates.dedupe.threshold,
+                scope_days=config.gates.dedupe.scope_days,
+            ),
+            min_briefs=config.harvest.inventory.min_briefs,
+            max_briefs=config.harvest.inventory.max_briefs,
+        )
+    finally:
+        dedupe_conn.close()
+
+    console.success(f"harvested {project}: {len(briefs)} brief(s) -- see harvest/inventory.md")
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +357,25 @@ def brief_list(
     ),
 ) -> None:
     """List candidate briefs."""
-    raise NotImplementedYet("brief list", "WP-08")
+    from ce import store
+    from ce.models import BriefStatus
+
+    briefs = store.read_briefs(Path("data"), project)
+    if status is not None:
+        try:
+            target = BriefStatus(status)
+        except ValueError:
+            raise CEError(f"unknown brief status {status!r}") from None
+        briefs = [b for b in briefs if b.status == target]
+
+    if not briefs:
+        console.out("(no briefs)")
+        return
+    width = max(len(b.id) for b in briefs)
+    for b in briefs:
+        console.out(
+            f"  {b.id.ljust(width)}  {b.status.value:<10}  {b.archetype.value:<20}  {b.title}"
+        )
 
 
 @brief_app.command("select")
@@ -399,7 +540,18 @@ def doctor_cmd(
 
 
 def main() -> None:
-    """Console script entry point. Maps CEError onto the TDD 9 exit codes."""
+    """Console script entry point. Maps CEError onto the TDD 9 exit codes.
+
+    Loads `.env` from the current directory before anything else runs, so
+    API keys can live in a gitignored file instead of requiring `setx`/
+    persistent env vars. Explicit path (not `find_dotenv()`'s default
+    frame-guessing, which would resolve relative to this installed
+    package's location, not the operator's pipeline-home cwd) — same
+    cwd-relative convention as `data/`, `config/engine.yml`, `prompts/`.
+    Existing environment variables still win (`override=False`, the
+    default) if a key is set both ways.
+    """
+    load_dotenv(Path(".env"))
     try:
         app()
     except CEError as exc:

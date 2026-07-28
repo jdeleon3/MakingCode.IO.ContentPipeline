@@ -57,6 +57,69 @@ def test_ingest_screen_persists_the_capture_record(tmp_path):
     assert store.read_capture(tmp_path, "test-proj", captured.id) == captured
 
 
+# --- ingest_screen_batch (--dir) ------------------------------------------------
+
+
+def test_find_screen_files_filters_by_extension_not_recursive(tmp_path):
+    folder = tmp_path / "screens"
+    _touch(folder / "a.png")
+    _touch(folder / "b.mp4")
+    _touch(folder / "notes.txt")  # not a screen extension -- excluded
+    _touch(folder / "sub" / "c.png")  # nested -- not scanned
+
+    found = ingest.find_screen_files(folder)
+    assert [p.name for p in found] == ["a.png", "b.mp4"]
+
+
+def test_ingest_screen_batch_ingests_every_matching_file(tmp_path):
+    folder = tmp_path / "screens"
+    _touch(folder / "a.png")
+    _touch(folder / "b.mp4")
+    _touch(folder / "irrelevant.txt")  # skipped by extension filter, not a failure
+
+    outcome = ingest.ingest_screen_batch(tmp_path, folder, "test-proj")
+
+    assert len(outcome.succeeded) == 2
+    assert outcome.failed == []
+    assert {c.type for c in outcome.succeeded} == {CaptureType.SCREENSHOT, CaptureType.SCREENCAST}
+
+
+def test_ingest_screen_batch_skip_and_continue_on_bad_file(tmp_path, monkeypatch):
+    """One bad file shouldn't block the rest of the folder (the design
+    explicitly chosen over stop-on-first-failure)."""
+    folder = tmp_path / "screens"
+    _touch(folder / "a.png")
+    _touch(folder / "b.png")
+    _touch(folder / "c.png")
+
+    real_ingest_screen = ingest.ingest_screen
+
+    def flaky_ingest_screen(data_root, path, project, **kwargs):
+        if path.name == "b.png":
+            raise CaptureError("simulated failure")
+        return real_ingest_screen(data_root, path, project, **kwargs)
+
+    monkeypatch.setattr(ingest, "ingest_screen", flaky_ingest_screen)
+
+    outcome = ingest.ingest_screen_batch(tmp_path, folder, "test-proj")
+
+    # ingest_screen renames files to capture-id-based names, so succeeded
+    # captures can't be matched back to "a.png"/"c.png" by filename -- the
+    # count plus the identified failure is what proves skip-and-continue.
+    assert len(outcome.succeeded) == 2
+    assert len(outcome.failed) == 1
+    assert outcome.failed[0][0].name == "b.png"
+    assert "simulated failure" in outcome.failed[0][1]
+
+
+def test_ingest_screen_batch_empty_folder_is_empty_outcome(tmp_path):
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    outcome = ingest.ingest_screen_batch(tmp_path, folder, "test-proj")
+    assert outcome.succeeded == []
+    assert outcome.failed == []
+
+
 # --- append_friction ------------------------------------------------------------
 
 

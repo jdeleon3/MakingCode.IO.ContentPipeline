@@ -10,7 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ce import store
-from ce.exit_codes import CaptureError
+from ce.capture import BatchOutcome
+from ce.exit_codes import CaptureError, CEError
 from ce.models import Capture, CaptureMoment, CaptureType
 
 # TDD doesn't specify how `ce capture screen` tells a screenshot from a
@@ -18,6 +19,7 @@ from ce.models import Capture, CaptureMoment, CaptureType
 # CLI contract's single `capture screen <file>` command unchanged.
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv"}
+_SCREEN_EXTENSIONS = _IMAGE_EXTENSIONS | _VIDEO_EXTENSIONS
 
 
 def _classify(path: Path) -> CaptureType:
@@ -102,6 +104,32 @@ def append_friction(
     )
     store.write_capture(data_root, capture)
     return capture
+
+
+def find_screen_files(dir_path: Path) -> list[Path]:
+    """Every top-level file in `dir_path` with a recognized image/video
+    extension, name-sorted. Not recursive."""
+    return sorted(
+        p for p in dir_path.iterdir() if p.is_file() and p.suffix.lower() in _SCREEN_EXTENSIONS
+    )
+
+
+def ingest_screen_batch(
+    data_root: Path,
+    dir_path: Path,
+    project: str,
+    *,
+    context: str | None = None,
+) -> BatchOutcome:
+    """`ce capture screen --dir`. Skip-and-continue: one bad file doesn't
+    block the rest of the folder — see `ce.capture.BatchOutcome`."""
+    outcome = BatchOutcome()
+    for path in find_screen_files(dir_path):
+        try:
+            outcome.succeeded.append(ingest_screen(data_root, path, project, context=context))
+        except CEError as exc:
+            outcome.failed.append((path, exc.message))
+    return outcome
 
 
 def list_captures(data_root: Path, project: str) -> list[Capture]:

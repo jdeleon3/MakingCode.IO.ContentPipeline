@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("harvest",): "WP-08",
     ("brief", "select"): "WP-09",
     ("produce",): "WP-09",
     ("verify",): "WP-10",
@@ -95,7 +94,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("harvest",): ["some-slug"],
         ("brief", "select"): ["br-01"],
         ("produce",): ["pc-0001"],
         ("verify",): ["pc-0001"],
@@ -428,6 +426,217 @@ def test_capture_list_empty_project(tmp_path, monkeypatch):
     assert "no captures" in result.output.lower()
 
 
+# --- capture --dir batch mode -------------------------------------------------
+
+
+def test_capture_audio_and_screen_reject_both_file_and_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    audio_file = tmp_path / "memo.wav"
+    audio_file.write_bytes(b"fake")
+
+    both = runner.invoke(
+        cli.app,
+        ["capture", "audio", str(audio_file), "--dir", str(tmp_path), "--project", "test-proj"],
+    )
+    assert both.exit_code != Exit.OK
+    assert isinstance(both.exception, CEError)
+
+    neither = runner.invoke(cli.app, ["capture", "audio", "--project", "test-proj"])
+    assert neither.exit_code != Exit.OK
+    assert isinstance(neither.exception, CEError)
+
+
+def test_capture_screen_dir_batches_a_folder(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    (folder / "a.png").write_bytes(b"fake-png")
+    (folder / "b.png").write_bytes(b"fake-png")
+    (folder / "notes.txt").write_bytes(b"not a screenshot")  # skipped by extension
+
+    result = runner.invoke(
+        cli.app, ["capture", "screen", "--dir", str(folder), "--project", "test-proj"]
+    )
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "2 succeeded, 0 failed" in result.output
+
+    from ce.capture import ingest as capture_ingest
+
+    captures = capture_ingest.list_captures(tmp_path / "data", "test-proj")
+    assert len(captures) == 2
+
+
+def test_capture_screen_dir_skip_and_continue_reports_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    folder = tmp_path / "screenshots"
+    folder.mkdir()
+    (folder / "a.png").write_bytes(b"fake-png")
+    (folder / "b.bogus").write_bytes(b"fake")  # not a screen extension -- silently skipped
+
+    result = runner.invoke(
+        cli.app, ["capture", "screen", "--dir", str(folder), "--project", "test-proj"]
+    )
+    assert result.exit_code == Exit.OK, result.output
+    assert "1 succeeded, 0 failed" in result.output
+
+
+def test_capture_screen_dir_empty_folder_reports_no_matches(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    folder = tmp_path / "empty"
+    folder.mkdir()
+
+    result = runner.invoke(
+        cli.app, ["capture", "screen", "--dir", str(folder), "--project", "test-proj"]
+    )
+    assert result.exit_code == Exit.OK
+    assert "no matching files" in result.output.lower()
+
+
+def test_capture_audio_dir_batches_a_folder(tmp_path, monkeypatch):
+    import shutil
+
+    from ce.capture import audio as audio_module
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    _write_minimal_engine_config(tmp_path)
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+
+    folder = tmp_path / "recordings"
+    folder.mkdir()
+    (folder / "a.wav").write_bytes(b"fake-audio")
+    (folder / "b.wav").write_bytes(b"fake-audio")
+
+    class FakePreprocessor:
+        def run(self, input_path, output_path, config):
+            output_path.write_bytes(b"fake-preprocessed")
+
+    class FakeTranscriptionClient:
+        def transcribe(self, path, *, model, vocabulary):
+            return "raw transcript text"
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content="cleaned transcript", in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(audio_module, "FfmpegPreprocessor", FakePreprocessor)
+    monkeypatch.setattr(audio_module, "OpenAITranscriptionClient", FakeTranscriptionClient)
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(
+        cli.app, ["capture", "audio", "--dir", str(folder), "--project", "test-proj"]
+    )
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "2 succeeded, 0 failed" in result.output
+
+    from ce import store
+
+    captures = store.list_captures(tmp_path / "data", "test-proj")
+    assert len(captures) == 2
+    assert all(c.derived is not None and c.derived.transcript_clean is not None for c in captures)
+
+
+# --- harvest / brief list (WP-08, TDD 12 "Done when") -----------------------
+
+
+def test_harvest_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce harvest` used to raise `NotImplementedYet("harvest", "WP-08")`;
+    now it should reach real logic (and fail on a missing project, not on
+    "not implemented yet"). A full fake-every-external-client run is
+    already covered at the module level by `test_harvest_git.py`,
+    `test_harvest_research.py`, and `test_harvest_inventory.py` — this is
+    just the wiring smoke test."""
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+
+    result = runner.invoke(cli.app, ["harvest", "does-not-exist"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_brief_list_empty_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    result = runner.invoke(cli.app, ["brief", "list", "test-proj"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "no briefs" in result.output.lower()
+
+
+def test_brief_list_prints_briefs_and_filters_by_status(tmp_path, monkeypatch):
+    from datetime import date
+
+    from ce import store
+    from ce.models import (
+        Brief,
+        BriefDemand,
+        BriefStatus,
+        GroundingStrength,
+        Project,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.scaffold_project_tree(data_root, "test-proj")
+    briefs = [
+        Brief(
+            id="br-01",
+            project="test-proj",
+            archetype="why_this_project",
+            title="Why this project",
+            angle="origin",
+            demand=BriefDemand(recurrence=1, signals=[]),
+            grounding_strength=GroundingStrength.STRONG,
+            dedupe_max_similarity=0.1,
+            weakest_point="n=1",
+            status=BriefStatus.CANDIDATE,
+        ),
+        Brief(
+            id="br-02",
+            project="test-proj",
+            archetype="specific_gotcha",
+            title="A weak one",
+            angle="gotcha",
+            demand=BriefDemand(recurrence=0, signals=[]),
+            grounding_strength=GroundingStrength.WEAK,
+            dedupe_max_similarity=0.0,
+            weakest_point="thin",
+            status=BriefStatus.DROPPED,
+        ),
+    ]
+    store.write_briefs(data_root, "test-proj", briefs)
+
+    all_result = runner.invoke(cli.app, ["brief", "list", "test-proj"])
+    assert all_result.exit_code == Exit.OK, all_result.output
+    assert "br-01" in all_result.output
+    assert "br-02" in all_result.output
+
+    dropped_result = runner.invoke(cli.app, ["brief", "list", "test-proj", "--status", "dropped"])
+    assert dropped_result.exit_code == Exit.OK
+    assert "br-02" in dropped_result.output
+    assert "br-01" not in dropped_result.output
+
+    bad_status_result = runner.invoke(cli.app, ["brief", "list", "test-proj", "--status", "bogus"])
+    assert bad_status_result.exit_code != Exit.OK
+    assert isinstance(bad_status_result.exception, CEError)
+
+
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------
 
 
@@ -502,24 +711,29 @@ def test_gate_blocked_carries_gate_name():
     assert "[G2]" in exc.message
 
 
-def test_main_maps_ce_error_to_exit_code(monkeypatch):
+def test_main_maps_ce_error_to_exit_code(tmp_path, monkeypatch):
     """cli.main translates a CEError into its process exit code."""
 
     def boom():
         raise GateBlocked("G1", "repo not in allowlist")
 
+    # `main()` loads `.env` from cwd (TDD 14) -- chdir away from the repo
+    # root so this doesn't pick up whatever real `.env` a developer has
+    # sitting there and leak real keys into this (and later) tests' env.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli, "app", boom)
     with pytest.raises(SystemExit) as excinfo:
         cli.main()
     assert excinfo.value.code == Exit.GATE_BLOCKED
 
 
-def test_main_lets_unexpected_errors_surface(monkeypatch):
+def test_main_lets_unexpected_errors_surface(tmp_path, monkeypatch):
     """Only CEError is translated; genuine bugs keep their traceback."""
 
     def boom():
         raise ValueError("a real bug")
 
+    monkeypatch.chdir(tmp_path)  # see test_main_maps_ce_error_to_exit_code
     monkeypatch.setattr(cli, "app", boom)
     with pytest.raises(ValueError):
         cli.main()
@@ -528,3 +742,24 @@ def test_main_lets_unexpected_errors_surface(monkeypatch):
 def test_ce_error_hint_is_optional():
     exc = CEError("bare message")
     assert exc.hint is None
+
+
+def test_main_loads_dotenv_from_cwd(tmp_path, monkeypatch):
+    """`ce`'s entry point loads `.env` from the current directory before
+    running any command, so API keys can live in a gitignored file
+    instead of requiring `setx`/persistent env vars (existing env vars
+    still win, per `load_dotenv`'s `override=False` default)."""
+    import os
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CE_TEST_DOTENV_VAR", raising=False)
+    (tmp_path / ".env").write_text("CE_TEST_DOTENV_VAR=hello\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "app", lambda: None)
+
+    try:
+        cli.main()
+        assert os.environ.get("CE_TEST_DOTENV_VAR") == "hello"
+    finally:
+        # dotenv writes straight to os.environ; monkeypatch only auto-undoes
+        # its own setenv/delenv calls, so this needs an explicit cleanup.
+        os.environ.pop("CE_TEST_DOTENV_VAR", None)

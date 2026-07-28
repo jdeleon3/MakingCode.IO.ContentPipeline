@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-07
+**Last session:** 2026-07-27 — completed WP-08
 
 ---
 
@@ -30,8 +30,8 @@
 | WP-05 | Git harvest & safety gates ⚠️ | ✅ done | 225 tests passing (37 new); `gitleaks` now required in `doctor.py` |
 | WP-06 | Index & dedupe | ✅ done | 240 tests passing (15 new); added `numpy` dependency |
 | WP-07 | External research | ✅ done | 261 tests passing (21 new); swappable search: gemini (default) / duckduckgo / perplexity; `GEMINI_API_KEY` now required in `doctor.py` |
-| WP-08 | Inventory generator (MATCH) ⭐ | 🔵 **next** | **MVP milestone** — usable system after this |
-| WP-09 | Writer & grader | ⬜ | |
+| WP-08 | Inventory generator (MATCH) ⭐ | ✅ done | 279 tests passing (18 new); **MVP milestone** — usable system after this |
+| WP-09 | Writer & grader | 🔵 **next** | |
 | WP-10 | Claim verification | ⬜ | |
 | WP-11 | Asset pipeline | ⬜ | flip `mermaid-cli`, `playwright` to required |
 | WP-12 | Renditions | ⬜ | |
@@ -45,6 +45,106 @@
 ---
 
 ## Deviations from the TDD
+
+- **2026-07-28 (post-WP-08, cross-cutting) · every provider client with an
+  official SDK now uses it, not hand-rolled `httpx`, reversing WP-02's/
+  WP-04's/WP-07's original "one POST doesn't justify an SDK dependency"
+  deviations.** `AnthropicClient` (`llm/gateway.py`) and the OpenAI-based
+  clients (`OpenAITranscriptionClient`, `OpenAIEmbeddingsClient`) moved
+  first, forced by two things:
+  1. **A real production bug.** `Gateway._call_with_retry` only caught
+     `httpx.HTTPStatusError` (429/5xx) — a `ReadTimeout` is a different
+     exception class and was never retried at all, so one slow response on
+     a large reasoning-tier `brief_generate` call killed the whole
+     `ce harvest` run outright. Bumping the timeout number alone (30s →
+     120s → 600s) only delays the same failure; the SDK's streaming call
+     (`messages.stream()` + `get_final_message()`) fixes it structurally —
+     a read timeout is per-chunk, so periodic bytes keep the connection
+     alive regardless of total generation time, unlike a synchronous POST
+     that blocks with zero bytes until the entire response is ready.
+  2. **An explicit decision to prefer official SDKs when a provider has
+     one**, made that session.
+  `Gateway._call_with_retry` now catches `anthropic.APIStatusError` /
+  `anthropic.APIConnectionError` instead of the `httpx` equivalents — this
+  couples retry logic to the Anthropic SDK's exception hierarchy, which
+  isn't new coupling in practice (Gateway was already Anthropic-only; see
+  the existing "Gateway never branches on `config.llm.provider`" note).
+  Flagged as a follow-up rather than migrated blind in that same session:
+  `harvest/research.py`'s `GeminiGroundedSearchClient`/
+  `PerplexitySearchClient` were left on hand-rolled httpx (WP-07 code from a
+  different session). **Follow-up completed this session:** both now use
+  their official SDKs — `google-genai` (`google.genai.Client.models
+  .generate_content()`, grounding via `Tool(google_search=GoogleSearch())`,
+  citations read from `response.candidates[0].grounding_metadata
+  .grounding_chunks`) and `perplexityai` (`perplexity.Perplexity.chat
+  .completions.create()`, an OpenAI-shaped client — same Stainless codegen
+  as the `openai` SDK, right down to `APIStatusError.status_code`/
+  `.message`). Both new clients wrap SDK errors into `ResearchError` on the
+  way out, matching `OpenAIEmbeddingsClient`/`OpenAITranscriptionClient`
+  (not `AnthropicClient`, which leaves errors unwrapped for `Gateway`'s own
+  retry loop to catch — there's no equivalent retry wrapper here, so
+  wrapping happens in the client itself). `DuckDuckGoSearchClient`/
+  `HttpFetchClient` stay on `httpx` — DuckDuckGo has no real API/SDK at all
+  (it's HTML scraping), and there's nothing to switch a plain page-text GET
+  to either. Added `google-genai>=1.0` and `perplexityai>=0.40` to
+  `pyproject.toml`. `tests/test_harvest_research.py`'s Gemini/Perplexity
+  fakes moved from monkeypatching `httpx.post` to installing a fake on the
+  client's lazily-built `_get_client()`, matching
+  `test_index.py::test_openai_embeddings_client_wraps_http_errors_readably`'s
+  pattern. In passing, fixed a pre-existing test bug unrelated to this
+  migration: `test_gemini_grounded_search_parses_grounding_chunks` asserted
+  `"gemini-2.0-flash" in url` against a client whose actual default model
+  was `"gemini-3.5-flash"` — model-name drift from before this session,
+  caught because the new fakes assert the model argument directly instead
+  of substring-matching a URL.
+
+- **WP-08 · `briefs.schema.json` omits `id`/`project`/`status`/
+  `dedupe_max_similarity` — assigned by `harvest/inventory.py` after
+  generation, not trusted to the model.** TDD 10.4 doesn't specify the
+  schema's exact shape, only that output validates against it. Sequential
+  IDs (`br-01`, `br-02`, ...), which project a run is for, the initial
+  `status` (always `candidate` pre-processing), and the dedupe score (not
+  knowable until *after* generation, since it depends on the published
+  back-catalog) are all deterministic bookkeeping — mirrors
+  `store.generate_capture_id`'s collision-safe-in-code approach from WP-04
+  rather than trusting an LLM to get IDs/status right.
+
+- **WP-08 · `ce brief select`'s actual CLI command (creating a `Piece`) is
+  still WP-09's job; only the "refuses a dropped brief" rule
+  (`inventory.assert_selectable`) is built and tested here.** TDD 12's
+  WP-08 Done-when line says "`ce brief select` refuses them", but
+  `cli.py`'s own `EXPECTED_WP` mapping (predates this session) already put
+  `("brief","select")` under WP-09, since promoting a brief to a `Piece`
+  touches `produce/`, out of `harvest/inventory.py`'s scope. Same split
+  WP-01 used for `ce project show`: build the logic where its data lives,
+  wire the CLI command in the WP that owns the rest of that command's
+  behavior.
+
+- **WP-08 · `gates/dedupe.py`'s `max_similarity()` is called per-brief for
+  *annotation*, not `check()` for a hard block.** TDD 6.3 describes G3 as
+  blocking; here, one brief scoring above threshold marks *that brief*
+  `dropped` with a `risk_flags` note naming the collision and the run
+  continues to the next brief — raising `GateBlocked` and aborting the
+  whole 6-8-brief batch over one collision would defeat the point of
+  generating alternatives. `ce brief select` (WP-09) is a different call
+  site — a single brief being promoted — where a hard `check()`-and-raise
+  is the right shape; both call sites share the same `max_similarity()`
+  scan.
+
+- **WP-08 · `ce harvest --force` is accepted (TDD 9's CLI contract) but not
+  yet meaningfully enforced.** Neither WP-05's `git.extract()` nor WP-07's
+  `research()` implement stage-level resumability internally, so there's
+  no "unchanged inputs, skip" state for `--force` to bypass yet. Revisit
+  once a manifest scheme is designed for the whole harvest stage; noted in
+  `cli.py`'s `harvest()` docstring.
+
+- **WP-08 · "recent published" dedupe context uses each piece's first
+  non-blank `article.md` line as its "one-line summary".** TDD 10.4 asks
+  for "titles + one-line summaries" of the last 90 days of published
+  pieces, but neither `Piece` nor `Brief` has a dedicated summary field
+  (TDD 5.2) — title comes from the originating `Brief.title` (`Piece`
+  itself has no title), and the summary is pragmatically the article's own
+  opening line rather than a new LLM call just to produce one.
 
 - **WP-07 · three swappable search providers implemented
   (`GeminiGroundedSearchClient`/`DuckDuckGoSearchClient`/

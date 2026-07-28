@@ -44,13 +44,16 @@ class FakePreprocessor:
 
 
 class FakeTranscriptionClient:
-    def __init__(self, responses: list[str]):
+    def __init__(self, responses: list[str | Exception]):
         self._responses = list(responses)
         self.calls: list[dict] = []
 
     def transcribe(self, path: Path, *, model: str, vocabulary: list[str]) -> str:
         self.calls.append({"path": path, "model": model, "vocabulary": vocabulary})
-        return self._responses.pop(0)
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 class FakeSplitter:
@@ -337,6 +340,155 @@ def test_silence_filter_appends_loudnorm_when_enabled(make_engine_config):
 
     config = make_engine_config().transcription.preprocess  # loudnorm: True by default
     assert _silence_filter(config).endswith(",loudnorm")
+
+
+def test_openai_transcription_client_wraps_http_errors_readably(tmp_path, monkeypatch):
+    """A real-world regression: an unwrapped SDK error surfaces as a raw
+    traceback with no visible status code or API error message."""
+    import httpx
+    import openai
+
+    from ce.capture.audio import OpenAITranscriptionClient
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/audio/transcriptions")
+    response = httpx.Response(401, request=request)
+    api_error = openai.APIStatusError(
+        "Incorrect API key provided",
+        response=response,
+        body={"error": {"message": "Incorrect API key provided"}},
+    )
+
+    class _FakeTranscriptions:
+        def create(self, **kwargs):
+            raise api_error
+
+    class _FakeAudio:
+        transcriptions = _FakeTranscriptions()
+
+    class _FakeOpenAIClient:
+        audio = _FakeAudio()
+
+    audio_file = tmp_path / "clip.wav"
+    audio_file.write_bytes(b"fake")
+    client = OpenAITranscriptionClient(api_key="sk-test")
+    monkeypatch.setattr(client, "_get_client", lambda: _FakeOpenAIClient())
+
+    with pytest.raises(CaptureError, match="401") as excinfo:
+        client.transcribe(audio_file, model="gpt-4o-mini-transcribe", vocabulary=[])
+    assert "Incorrect API key" in excinfo.value.message
+
+
+# --- ingest_and_transcribe_batch (--dir) --------------------------------------
+
+
+def _touch(path: Path, content: bytes = b"fake") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+def test_find_audio_files_filters_by_extension_not_recursive(tmp_path):
+    from ce.capture.audio import find_audio_files
+
+    folder = tmp_path / "recordings"
+    _touch(folder / "a.m4a")
+    _touch(folder / "b.wav")
+    _touch(folder / "notes.txt")  # not an audio extension -- excluded
+    _touch(folder / "sub" / "c.m4a")  # nested -- not scanned
+
+    found = find_audio_files(folder)
+    assert [p.name for p in found] == ["a.m4a", "b.wav"]
+
+
+def test_ingest_and_transcribe_batch_ingests_every_matching_file(tmp_path, make_engine_config):
+    from ce.capture.audio import ingest_and_transcribe_batch
+
+    folder = tmp_path / "recordings"
+    _touch(folder / "a.wav")
+    _touch(folder / "b.wav")
+    _touch(folder / "irrelevant.txt")  # skipped by extension filter, not a failure
+
+    preprocessor = FakePreprocessor()
+    transcription_client = FakeTranscriptionClient(["first", "second"])
+    llm_client = FakeLLMClient(content="cleaned")
+    config = make_engine_config()
+    gateway = Gateway(config, data_root=tmp_path, client=llm_client)
+
+    outcome = ingest_and_transcribe_batch(
+        tmp_path,
+        folder,
+        "test-proj",
+        config,
+        gateway=gateway,
+        preprocessor=preprocessor,
+        transcription_client=transcription_client,
+    )
+
+    assert len(outcome.succeeded) == 2
+    assert outcome.failed == []
+    for captured in outcome.succeeded:
+        assert captured.derived is not None
+        assert captured.derived.transcript_clean is not None
+
+
+def test_ingest_and_transcribe_batch_skip_and_continue_on_bad_file(tmp_path, make_engine_config):
+    """One bad file (e.g. a real ffmpeg/API failure) shouldn't block the
+    rest of the folder -- the design explicitly chosen over stop-on-first-
+    failure, so the batch reports a summary at the end instead."""
+    from ce.capture.audio import ingest_and_transcribe_batch
+
+    folder = tmp_path / "recordings"
+    _touch(folder / "a.wav")
+    _touch(folder / "b.wav")
+    _touch(folder / "c.wav")
+
+    preprocessor = FakePreprocessor()
+    # b.wav's transcription raises; a.wav and c.wav succeed.
+    transcription_client = FakeTranscriptionClient(
+        ["first", CaptureError("simulated failure"), "third"]
+    )
+    llm_client = FakeLLMClient(content="cleaned")
+    config = make_engine_config()
+    gateway = Gateway(config, data_root=tmp_path, client=llm_client)
+
+    outcome = ingest_and_transcribe_batch(
+        tmp_path,
+        folder,
+        "test-proj",
+        config,
+        gateway=gateway,
+        preprocessor=preprocessor,
+        transcription_client=transcription_client,
+    )
+
+    # audio.ingest() renames files to capture-id-based names, so succeeded
+    # captures can't be matched back to "a.wav"/"c.wav" by filename -- the
+    # count plus the identified failure is what proves skip-and-continue.
+    assert len(outcome.succeeded) == 2
+    assert len(outcome.failed) == 1
+    assert outcome.failed[0][0].name == "b.wav"
+    assert "simulated failure" in outcome.failed[0][1]
+
+
+def test_ingest_and_transcribe_batch_empty_folder_is_empty_outcome(tmp_path, make_engine_config):
+    from ce.capture.audio import ingest_and_transcribe_batch
+
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    config = make_engine_config()
+    gateway = Gateway(config, data_root=tmp_path, client=FakeLLMClient(content="x"))
+
+    outcome = ingest_and_transcribe_batch(
+        tmp_path,
+        folder,
+        "test-proj",
+        config,
+        gateway=gateway,
+        preprocessor=FakePreprocessor(),
+        transcription_client=FakeTranscriptionClient([]),
+    )
+    assert outcome.succeeded == []
+    assert outcome.failed == []
 
 
 class TestFfmpegSilenceSplitterParsing:

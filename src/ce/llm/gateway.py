@@ -9,12 +9,20 @@ config/paths once at construction and holds the per-run spend accumulator
 the budget governor needs (TDD 6.5 "per-run cap likewise"), which a bare
 function would otherwise need a module-level global for.
 
-Provider calls go through `AnthropicClient`, a thin `httpx` wrapper (this
-project already depends on `httpx` for everything else; the Messages API is
-one POST, not worth the `anthropic` SDK dependency). `Gateway` takes any
-`LLMClient` via dependency injection, which is what lets tests run against a
-fake client with zero network calls instead of a pre-primed cache-file
-fixture.
+Provider calls go through `AnthropicClient`, built on the official
+`anthropic` SDK — a reversal of WP-02's original "hand-rolled httpx POST,
+not worth the SDK dependency" call. Two things changed that judgment: a
+production `ReadTimeout` on a large reasoning-tier `brief_generate` call
+(raw httpx has no defense against this beyond "raise the number and hope"),
+and an explicit decision to prefer official SDKs when a provider has one.
+The SDK call streams (`messages.stream()` + `get_final_message()`) rather
+than a plain synchronous POST — Anthropic's own guidance is that streaming
+sidesteps the timeout risk structurally: a read timeout is per-chunk, so
+periodic bytes keep the connection alive regardless of total generation
+time, where a non-streaming call blocks with zero bytes until the entire
+response is ready server-side. `Gateway` still takes any `LLMClient` via
+dependency injection, which is what lets tests run against a fake client
+with zero network calls instead of a pre-primed cache-file fixture.
 """
 
 from __future__ import annotations
@@ -28,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-import httpx
+import anthropic
 import jsonschema
 from pydantic import BaseModel
 
@@ -48,8 +56,6 @@ PRICING_PER_MILLION: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.00, 5.00),
 }
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 8192
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -87,39 +93,47 @@ class LLMClient(Protocol):
 
 
 class AnthropicClient:
-    """httpx-based client for the Anthropic Messages API."""
+    """Official `anthropic` SDK, called via `messages.stream()` rather than
+    a plain `.create()` — see the module docstring for why streaming is the
+    real fix for the timeout failure mode, not just a bigger number.
 
-    def __init__(self, *, api_key: str | None = None, timeout: float = 60.0) -> None:
+    The API-key check stays lazy (on `complete()`, not `__init__`) to match
+    every other client in this codebase (`OpenAITranscriptionClient`,
+    `OpenAIEmbeddingsClient`) — `Gateway.__init__` constructs this
+    unconditionally, so checking eagerly would make constructing a `Gateway`
+    fail before any command that doesn't end up calling the LLM gets a
+    chance to run.
+    """
+
+    def __init__(self, *, api_key: str | None = None) -> None:
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self._timeout = timeout
+        self._client: anthropic.Anthropic | None = None
 
-    def complete(self, *, model: str, system: str, user: str, max_tokens: int) -> ProviderResponse:
+    def _get_client(self) -> anthropic.Anthropic:
         if not self._api_key:
             raise PromptError("ANTHROPIC_API_KEY is not set", hint="ce doctor")
-        payload: dict[str, Any] = {
+        if self._client is None:
+            self._client = anthropic.Anthropic(api_key=self._api_key)
+        return self._client
+
+    def complete(self, *, model: str, system: str, user: str, max_tokens: int) -> ProviderResponse:
+        client = self._get_client()
+        kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": user}],
         }
         if system:
-            payload["system"] = system
+            kwargs["system"] = system
 
-        response = httpx.post(
-            ANTHROPIC_API_URL,
-            json=payload,
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
-        text = "".join(block["text"] for block in data["content"] if block.get("type") == "text")
-        usage = data["usage"]
+        with client.messages.stream(**kwargs) as stream:
+            message = stream.get_final_message()
+
+        text = "".join(block.text for block in message.content if block.type == "text")
         return ProviderResponse(
-            content=text, in_tokens=usage["input_tokens"], out_tokens=usage["output_tokens"]
+            content=text,
+            in_tokens=message.usage.input_tokens,
+            out_tokens=message.usage.output_tokens,
         )
 
 
@@ -176,14 +190,22 @@ class Gateway:
                 return self._client.complete(
                     model=model, system=system, user=user, max_tokens=max_tokens
                 )
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if status not in _RETRYABLE_STATUS or attempt >= retry.max_attempts:
+            except anthropic.APIStatusError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS or attempt >= retry.max_attempts:
                     raise
-                delay = retry.backoff_base_sec * (2 ** (attempt - 1)) + random.uniform(
-                    0, retry.backoff_base_sec
-                )
-                time.sleep(delay)
+            except anthropic.APIConnectionError:
+                # Network-level failures (read timeouts, connection resets,
+                # DNS blips — APITimeoutError is a subclass of this) — not
+                # an APIStatusError, so this needs its own except clause or
+                # it isn't retried at all. A slow reasoning-tier response is
+                # exactly the case this must cover.
+                if attempt >= retry.max_attempts:
+                    raise
+
+            delay = retry.backoff_base_sec * (2 ** (attempt - 1)) + random.uniform(
+                0, retry.backoff_base_sec
+            )
+            time.sleep(delay)
 
     @staticmethod
     def _try_validate(schema: dict[str, Any], content: str) -> tuple[Any | None, str | None]:

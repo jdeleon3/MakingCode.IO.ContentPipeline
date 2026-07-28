@@ -133,6 +133,16 @@ class ResearchError(CEError):
     exit_code = Exit.ERROR
 
 
+class InventoryError(CEError):
+    """`harvest/inventory.py` (TDD 10.4/12 WP-08, the MATCH step) failed
+    for a reason other than a gate blocking the run: `brief_generate`
+    still cited an unresolvable capture/commit after one retry, or
+    something in a candidate `Brief`'s selection was refused.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

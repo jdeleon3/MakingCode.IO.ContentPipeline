@@ -12,20 +12,26 @@ first one specified here.
 Three concrete `SearchClient`s are implemented, swappable via
 `config.harvest.research.provider` and `build_search_client()`:
 
-- `GeminiGroundedSearchClient` — the default. Gemini's "grounding with
-  Google Search" tool: the model researches the query itself; `search()`
-  adapts the response's `groundingChunks` (web citations) into
+- `GeminiGroundedSearchClient` — the default. Official `google-genai` SDK
+  (matches `gateway.py`'s `AnthropicClient` / `index.py`'s
+  `OpenAIEmbeddingsClient`: prefer the official SDK when a provider has
+  one). Gemini's "grounding with Google Search" tool: the model researches
+  the query itself; `search()` adapts the response's
+  `grounding_metadata.grounding_chunks` (web citations) into
   `SearchResult`s rather than treating the synthesized answer as one
   source. Needs `GEMINI_API_KEY` (required in `ce doctor` as of WP-07,
   since it's the default).
 - `DuckDuckGoSearchClient` — no API key, a plain ranked link list scraped
   from the no-JS HTML results page (stdlib `html.parser`, no new
   dependency). A zero-config fallback (keeps TDD 2.4 S3's $20/month budget
-  intact) for anyone who'd rather not set up a Gemini key.
-- `PerplexitySearchClient` — an online/Sonar model with built-in web
-  search; `search()` adapts `search_results` (or, on older API responses,
-  bare `citations` URLs) the same way. Needs `PERPLEXITY_API_KEY` — never
-  required in `ce doctor`, since it's an alternative, not the default.
+  intact) for anyone who'd rather not set up a Gemini key. DuckDuckGo has
+  no API/SDK at all here — this is screen-scraping its HTML results page,
+  so there's no official client to switch to.
+- `PerplexitySearchClient` — official `perplexityai` SDK. An online/Sonar
+  model with built-in web search; `search()` adapts `search_results` (or,
+  on older API responses, bare `citations` URLs) the same way. Needs
+  `PERPLEXITY_API_KEY` — never required in `ce doctor`, since it's an
+  alternative, not the default.
 
 `research()` itself only ever depends on the `SearchClient` Protocol, never
 on which provider is selected — callers (`ce harvest`, WP-08) build a
@@ -48,6 +54,10 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
+import perplexity
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 from pydantic import BaseModel
 
 from ce.exit_codes import ResearchError
@@ -104,7 +114,7 @@ class _DuckDuckGoResultParser(HTMLParser):
 class DuckDuckGoSearchClient:
     _URL = "https://html.duckduckgo.com/html/"
 
-    def __init__(self, *, timeout: float = 20.0) -> None:
+    def __init__(self, *, timeout: float = 30.0) -> None:
         self._timeout = timeout
 
     def search(self, query: str, *, max_results: int) -> list[SearchResult]:
@@ -121,91 +131,108 @@ class DuckDuckGoSearchClient:
 
 
 class GeminiGroundedSearchClient:
-    """Gemini's "grounding with Google Search" tool: the model researches
-    the query and returns web citations in `groundingMetadata`, which this
-    adapts into a plain `SearchResult` list. There's no independent snippet
-    (Gemini doesn't expose one per-citation), so `snippet` stays empty.
-    """
+    """Official `google-genai` SDK, driving Gemini's "grounding with Google
+    Search" tool: the model researches the query and returns web citations
+    in `grounding_metadata`, which this adapts into a plain `SearchResult`
+    list. There's no independent snippet (Gemini doesn't expose one
+    per-citation), so `snippet` stays empty.
 
-    _URL_TEMPLATE = (
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    )
+    The API-key check stays lazy (on `search()`, not `__init__`) to match
+    every other client in this codebase — `build_search_client()` can
+    construct this unconditionally without an unset key aborting a run
+    that never ends up calling Gemini.
+    """
 
     def __init__(
         self,
         *,
         api_key: str | None = None,
-        model: str = "gemini-2.0-flash",
-        timeout: float = 30.0,
+        model: str = "gemini-3.5-flash",
+        timeout: float = 120.0,
     ) -> None:
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self._model = model
         self._timeout = timeout
+        self._client: genai.Client | None = None
 
-    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+    def _get_client(self) -> genai.Client:
         if not self._api_key:
             raise ResearchError("GEMINI_API_KEY is not set", hint="ce doctor")
-        response = httpx.post(
-            self._URL_TEMPLATE.format(model=self._model),
-            params={"key": self._api_key},
-            json={
-                "contents": [{"parts": [{"text": query}]}],
-                "tools": [{"google_search": {}}],
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
-        candidates = data.get("candidates") or [{}]
-        chunks = candidates[0].get("groundingMetadata", {}).get("groundingChunks", [])
+        if self._client is None:
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=genai_types.HttpOptions(timeout=int(self._timeout * 1000)),
+            )
+        return self._client
+
+    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        client = self._get_client()
+        try:
+            response = client.models.generate_content(
+                model=self._model,
+                contents=query,
+                config=genai_types.GenerateContentConfig(
+                    tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())]
+                ),
+            )
+        except genai_errors.APIError as exc:
+            raise ResearchError(f"Gemini search request failed ({exc.code}): {exc.message}") from exc
 
         results: list[SearchResult] = []
+        candidates = response.candidates or []
+        grounding = candidates[0].grounding_metadata if candidates else None
+        chunks = grounding.grounding_chunks if grounding and grounding.grounding_chunks else []
         for chunk in chunks:
-            web = chunk.get("web") or {}
-            uri, title = web.get("uri"), web.get("title")
-            if uri and title:
-                results.append(SearchResult(url=uri, title=title))
+            web = chunk.web
+            if web and web.uri and web.title:
+                results.append(SearchResult(url=web.uri, title=web.title))
         return results[:max_results]
 
 
 class PerplexitySearchClient:
-    """An online/Sonar Perplexity model searches the web as part of
-    answering; `search()` adapts the response's `search_results` (title +
-    url, current API) or bare `citations` (url only, older API) into
-    `SearchResult`s, rather than treating the synthesized answer as a
-    single source.
+    """Official `perplexityai` SDK. An online/Sonar Perplexity model
+    searches the web as part of answering; `search()` adapts the
+    response's `search_results` (title + url, current API) or bare
+    `citations` (url only, older API) into `SearchResult`s, rather than
+    treating the synthesized answer as a single source.
+
+    The API-key check stays lazy (on `search()`, not `__init__`) — see
+    `GeminiGroundedSearchClient` above for why.
     """
 
-    _URL = "https://api.perplexity.ai/chat/completions"
-
     def __init__(
-        self, *, api_key: str | None = None, model: str = "sonar", timeout: float = 30.0
+        self, *, api_key: str | None = None, model: str = "sonar", timeout: float = 90.0
     ) -> None:
         self._api_key = api_key or os.environ.get("PERPLEXITY_API_KEY", "")
         self._model = model
         self._timeout = timeout
+        self._client: perplexity.Perplexity | None = None
 
-    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+    def _get_client(self) -> perplexity.Perplexity:
         if not self._api_key:
             raise ResearchError("PERPLEXITY_API_KEY is not set", hint="ce doctor")
-        response = httpx.post(
-            self._URL,
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "messages": [{"role": "user", "content": query}]},
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
+        if self._client is None:
+            self._client = perplexity.Perplexity(api_key=self._api_key, timeout=self._timeout)
+        return self._client
 
-        search_results = data.get("search_results") or []
+    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        client = self._get_client()
+        try:
+            response = client.chat.completions.create(
+                model=self._model, messages=[{"role": "user", "content": query}]
+            )
+        except perplexity.APIStatusError as exc:
+            raise ResearchError(
+                f"Perplexity search request failed ({exc.status_code}): {exc.message}"
+            ) from exc
+
+        search_results = response.search_results or []
         if search_results:
             results = [
-                SearchResult(url=r["url"], title=r.get("title") or r["url"])
-                for r in search_results
-                if r.get("url")
+                SearchResult(url=r.url, title=r.title or r.url) for r in search_results if r.url
             ]
         else:
-            results = [SearchResult(url=url, title=url) for url in (data.get("citations") or [])]
+            results = [SearchResult(url=url, title=url) for url in (response.citations or [])]
         return results[:max_results]
 
 
@@ -262,7 +289,7 @@ class _TextExtractor(HTMLParser):
 
 
 class HttpFetchClient:
-    def __init__(self, *, timeout: float = 20.0) -> None:
+    def __init__(self, *, timeout: float = 30.0) -> None:
         self._timeout = timeout
 
     def fetch(self, url: str) -> str | None:

@@ -7,13 +7,13 @@ transcription API, and runs the `transcript_clean` LLM pass — producing
 self-correction, tangent, and hedge verbatim; see prompts/transcript_clean.md).
 
 ffmpeg and the transcription API are both reached through small Protocols
-(`Preprocessor`, `TranscriptionClient`, `Splitter`) with real, subprocess/
-httpx-based default implementations — same shape as WP-02's `LLMClient`.
-This isn't optional here the way it was mostly-a-style-choice in WP-02: this
-dev environment has no `ffmpeg` binary at all, so real subprocess calls
-can't be exercised by the automated test suite regardless of preference.
-Tests inject fakes; the real implementations are exercised manually on a
-machine that has `ffmpeg` installed (which `ce doctor` verifies).
+(`Preprocessor`, `TranscriptionClient`, `Splitter`) — ffmpeg via subprocess
+(no SDK exists for a local binary), transcription via the official `openai`
+SDK. Real subprocess calls can't be exercised by the automated test suite
+regardless of preference: this dev environment has no `ffmpeg` binary at
+all. Tests inject fakes for all three; the real implementations are
+exercised manually on a machine that has `ffmpeg` installed (which
+`ce doctor` verifies).
 """
 
 from __future__ import annotations
@@ -26,17 +26,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-import httpx
+import openai
 
 from ce import store
+from ce.capture import BatchOutcome
 from ce.config import EngineConfig, PreprocessConfig
-from ce.exit_codes import CaptureError
+from ce.exit_codes import CaptureError, CEError
 from ce.llm.gateway import Gateway
 from ce.models import Capture, CaptureDerived, CaptureMoment, CaptureType
 
 # OpenAI's audio transcription endpoint rejects files over 25MB; TDD 10.2
 # chunks anything over 24MB to leave headroom.
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
+
+AUDIO_EXTENSIONS = {".m4a", ".wav", ".mp3", ".aac", ".flac", ".ogg", ".wma"}
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)")
 _SILENCE_START_RE = re.compile(r"silence_start:\s*([\d.]+)")
@@ -197,33 +200,39 @@ class TranscriptionClient(Protocol):
 
 
 class OpenAITranscriptionClient:
-    """httpx-based client for OpenAI's audio transcription endpoint — same
-    no-SDK rationale as WP-02's `AnthropicClient`: one multipart POST
-    doesn't justify an SDK dependency.
+    """Official `openai` SDK client for OpenAI's audio transcription
+    endpoint — reversal of the original no-SDK call, matching
+    `AnthropicClient` (see `gateway.py`'s module docstring for the
+    rationale: prefer the official SDK when the provider has one).
     """
-
-    _URL = "https://api.openai.com/v1/audio/transcriptions"
 
     def __init__(self, *, api_key: str | None = None, timeout: float = 120.0) -> None:
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._timeout = timeout
+        self._client: openai.OpenAI | None = None
 
-    def transcribe(self, path: Path, *, model: str, vocabulary: list[str]) -> str:
+    def _get_client(self) -> openai.OpenAI:
         if not self._api_key:
             raise CaptureError("OPENAI_API_KEY is not set", hint="ce doctor")
-        data = {"model": model}
+        if self._client is None:
+            self._client = openai.OpenAI(api_key=self._api_key, timeout=self._timeout)
+        return self._client
+
+    def transcribe(self, path: Path, *, model: str, vocabulary: list[str]) -> str:
+        client = self._get_client()
+        kwargs: dict[str, str] = {}
         if vocabulary:
-            data["prompt"] = ", ".join(vocabulary)
-        with path.open("rb") as handle:
-            response = httpx.post(
-                self._URL,
-                files={"file": (path.name, handle)},
-                data=data,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=self._timeout,
-            )
-        response.raise_for_status()
-        return response.json()["text"]
+            kwargs["prompt"] = ", ".join(vocabulary)
+        try:
+            with path.open("rb") as handle:
+                transcription = client.audio.transcriptions.create(
+                    file=handle, model=model, **kwargs
+                )
+        except openai.APIStatusError as exc:
+            raise CaptureError(
+                f"OpenAI transcription request failed ({exc.status_code}): {exc.message}"
+            ) from exc
+        return transcription.text
 
 
 # ---------------------------------------------------------------------------
@@ -363,3 +372,49 @@ def transcribe(
     )
     store.write_capture(data_root, updated)
     return updated
+
+
+def find_audio_files(dir_path: Path) -> list[Path]:
+    """Every top-level file in `dir_path` with a recognized audio extension,
+    name-sorted. Not recursive."""
+    return sorted(
+        p for p in dir_path.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
+    )
+
+
+def ingest_and_transcribe_batch(
+    data_root: Path,
+    dir_path: Path,
+    project: str,
+    config: EngineConfig,
+    *,
+    gateway: Gateway,
+    moment: CaptureMoment = CaptureMoment.IN_SITU,
+    context: str | None = None,
+    preprocessor: Preprocessor | None = None,
+    transcription_client: TranscriptionClient | None = None,
+    splitter: Splitter | None = None,
+) -> BatchOutcome:
+    """`ce capture audio --dir`. Skip-and-continue: one bad file doesn't
+    block the rest of the folder — see `ce.capture.BatchOutcome`.
+
+    `preprocessor`/`transcription_client`/`splitter` pass straight through
+    to `transcribe()` per file (same DI seam, not reconstructed per call).
+    """
+    outcome = BatchOutcome()
+    for path in find_audio_files(dir_path):
+        try:
+            captured = ingest(data_root, path, project, moment=moment, context=context)
+            transcribed = transcribe(
+                data_root,
+                captured,
+                config,
+                gateway=gateway,
+                preprocessor=preprocessor,
+                transcription_client=transcription_client,
+                splitter=splitter,
+            )
+            outcome.succeeded.append(transcribed)
+        except CEError as exc:
+            outcome.failed.append((path, exc.message))
+    return outcome

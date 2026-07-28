@@ -175,3 +175,39 @@ def test_upsert_roundtrips_status_and_published_at(tmp_path, fake_embeddings_cli
     assert row.status == "published"
     assert row.published_at == published_at
     assert row.project == "test-proj"
+
+
+# --- OpenAIEmbeddingsClient error wrapping ------------------------------------
+
+
+def test_openai_embeddings_client_wraps_http_errors_readably(tmp_path):
+    """Without wrapping, an SDK error surfaces as a raw traceback with no
+    visible status code or API error message (same class of regression as
+    `OpenAITranscriptionClient` -- see test_capture_audio.py)."""
+    import httpx
+    import openai
+    import pytest
+
+    from ce.exit_codes import IndexingError
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/embeddings")
+    response = httpx.Response(401, request=request)
+    api_error = openai.APIStatusError(
+        "Incorrect API key provided",
+        response=response,
+        body={"error": {"message": "Incorrect API key provided"}},
+    )
+
+    class _FakeEmbeddings:
+        def create(self, **kwargs):
+            raise api_error
+
+    class _FakeOpenAIClient:
+        embeddings = _FakeEmbeddings()
+
+    client = index_module.OpenAIEmbeddingsClient(api_key="sk-test")
+    client._get_client = lambda: _FakeOpenAIClient()
+
+    with pytest.raises(IndexingError, match="401") as excinfo:
+        client.embed("some text", model="text-embedding-3-small")
+    assert "Incorrect API key" in excinfo.value.message

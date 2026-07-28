@@ -18,8 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-import httpx
 import numpy as np
+import openai
 
 from ce import store
 from ce.exit_codes import IndexingError
@@ -29,9 +29,12 @@ DEFAULT_INDEX_PATH = Path("data/index.db")
 
 
 # ---------------------------------------------------------------------------
-# Embeddings (OpenAI) — same no-SDK, DI-Protocol shape as WP-02/WP-04's
-# LLMClient/TranscriptionClient: one JSON POST doesn't justify an SDK
-# dependency, and tests inject a fake rather than hitting the real API.
+# Embeddings (OpenAI) — official `openai` SDK, DI-Protocol shape matching
+# WP-02/WP-04's LLMClient/TranscriptionClient. Originally a hand-rolled
+# httpx POST ("one JSON call doesn't justify an SDK dependency"); reversed
+# once `gateway.py`'s AnthropicClient moved to the official SDK — see that
+# module's docstring for the full rationale. Tests inject a fake rather
+# than hitting the real API either way.
 # ---------------------------------------------------------------------------
 
 
@@ -40,23 +43,27 @@ class EmbeddingsClient(Protocol):
 
 
 class OpenAIEmbeddingsClient:
-    _URL = "https://api.openai.com/v1/embeddings"
-
     def __init__(self, *, api_key: str | None = None, timeout: float = 60.0) -> None:
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._timeout = timeout
+        self._client: openai.OpenAI | None = None
 
-    def embed(self, text: str, *, model: str) -> list[float]:
+    def _get_client(self) -> openai.OpenAI:
         if not self._api_key:
             raise IndexingError("OPENAI_API_KEY is not set", hint="ce doctor")
-        response = httpx.post(
-            self._URL,
-            json={"model": model, "input": text},
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
-        return response.json()["data"][0]["embedding"]
+        if self._client is None:
+            self._client = openai.OpenAI(api_key=self._api_key, timeout=self._timeout)
+        return self._client
+
+    def embed(self, text: str, *, model: str) -> list[float]:
+        client = self._get_client()
+        try:
+            response = client.embeddings.create(model=model, input=text)
+        except openai.APIStatusError as exc:
+            raise IndexingError(
+                f"OpenAI embeddings request failed ({exc.status_code}): {exc.message}"
+            ) from exc
+        return response.data[0].embedding
 
 
 # ---------------------------------------------------------------------------

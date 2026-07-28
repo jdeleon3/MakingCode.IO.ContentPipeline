@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
+import perplexity
 import pytest
 
 from ce.exit_codes import ResearchError
@@ -263,79 +266,63 @@ def test_stance_enum_accepts_all_schema_values():
 
 
 # ---------------------------------------------------------------------------
-# Swappable search providers (Gemini grounded search, Perplexity)
+# Swappable search providers (Gemini grounded search, Perplexity) — both
+# official SDKs, so fakes are installed on the lazily-built `_get_client()`
+# rather than at the HTTP layer (same shape as
+# test_index.py::test_openai_embeddings_client_wraps_http_errors_readably).
 # ---------------------------------------------------------------------------
 
 
-class _FakeResponse:
-    def __init__(self, json_data: dict, status_code: int = 200):
-        self._json = json_data
-        self.status_code = status_code
+class _FakeGenaiModels:
+    def __init__(self, *, response=None, exc=None, captured=None):
+        self._response = response
+        self._exc = exc
+        self.captured = captured if captured is not None else {}
 
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            import httpx
+    def generate_content(self, *, model, contents, config):
+        self.captured["model"] = model
+        self.captured["contents"] = contents
+        self.captured["config"] = config
+        if self._exc is not None:
+            raise self._exc
+        return self._response
 
-            raise httpx.HTTPStatusError("error", request=None, response=self)
 
-    def json(self) -> dict:
-        return self._json
+def _gemini_response(chunks: list) -> SimpleNamespace:
+    return SimpleNamespace(
+        candidates=[SimpleNamespace(grounding_metadata=SimpleNamespace(grounding_chunks=chunks))]
+    )
 
 
-def test_gemini_grounded_search_parses_grounding_chunks(monkeypatch):
-    captured = {}
-
-    def fake_post(url, *, params=None, json=None, timeout=None):
-        captured["url"] = url
-        captured["params"] = params
-        captured["json"] = json
-        return _FakeResponse(
-            {
-                "candidates": [
-                    {
-                        "groundingMetadata": {
-                            "groundingChunks": [
-                                {"web": {"uri": "https://a.example.com/1", "title": "A"}},
-                                {"web": {"uri": "https://b.example.com/1", "title": "B"}},
-                                {"other": "no web key -- must be skipped, not crash"},
-                            ]
-                        }
-                    }
-                ]
-            }
-        )
-
-    monkeypatch.setattr(research_module.httpx, "post", fake_post)
-
+def test_gemini_grounded_search_parses_grounding_chunks():
+    chunks = [
+        SimpleNamespace(web=SimpleNamespace(uri="https://a.example.com/1", title="A")),
+        SimpleNamespace(web=SimpleNamespace(uri="https://b.example.com/1", title="B")),
+        SimpleNamespace(web=None),  # no web key -- must be skipped, not crash
+    ]
+    models = _FakeGenaiModels(response=_gemini_response(chunks))
     client = research_module.GeminiGroundedSearchClient(api_key="test-key")
+    client._get_client = lambda: SimpleNamespace(models=models)
+
     results = client.search("DuckDB vs Spark", max_results=10)
 
     assert [r.url for r in results] == ["https://a.example.com/1", "https://b.example.com/1"]
     assert [r.title for r in results] == ["A", "B"]
-    assert captured["params"] == {"key": "test-key"}
-    assert captured["json"]["tools"] == [{"google_search": {}}]
-    assert "gemini-2.0-flash" in captured["url"]
+    assert models.captured["contents"] == "DuckDB vs Spark"
+    assert models.captured["model"] == "gemini-3.5-flash"
+    tool = models.captured["config"].tools[0]
+    assert isinstance(tool.google_search, research_module.genai_types.GoogleSearch)
 
 
-def test_gemini_respects_max_results(monkeypatch):
-    def fake_post(url, *, params=None, json=None, timeout=None):
-        return _FakeResponse(
-            {
-                "candidates": [
-                    {
-                        "groundingMetadata": {
-                            "groundingChunks": [
-                                {"web": {"uri": f"https://s{i}.example.com/1", "title": f"S{i}"}}
-                                for i in range(5)
-                            ]
-                        }
-                    }
-                ]
-            }
-        )
-
-    monkeypatch.setattr(research_module.httpx, "post", fake_post)
+def test_gemini_respects_max_results():
+    chunks = [
+        SimpleNamespace(web=SimpleNamespace(uri=f"https://s{i}.example.com/1", title=f"S{i}"))
+        for i in range(5)
+    ]
+    models = _FakeGenaiModels(response=_gemini_response(chunks))
     client = research_module.GeminiGroundedSearchClient(api_key="test-key")
+    client._get_client = lambda: SimpleNamespace(models=models)
+
     results = client.search("q", max_results=2)
     assert len(results) == 2
 
@@ -346,40 +333,66 @@ def test_gemini_missing_api_key_raises():
         client.search("q", max_results=5)
 
 
-def test_perplexity_search_uses_search_results_field(monkeypatch):
-    captured = {}
+def test_gemini_search_wraps_api_errors_readably():
+    """Without wrapping, an SDK error surfaces as a raw traceback with no
+    visible status code or API error message (same class of regression as
+    `OpenAITranscriptionClient` -- see test_capture_audio.py)."""
+    api_error = research_module.genai_errors.APIError(
+        429, {"message": "Rate limited", "status": "RESOURCE_EXHAUSTED"}
+    )
+    models = _FakeGenaiModels(exc=api_error)
+    client = research_module.GeminiGroundedSearchClient(api_key="test-key")
+    client._get_client = lambda: SimpleNamespace(models=models)
 
-    def fake_post(url, *, headers=None, json=None, timeout=None):
-        captured["headers"] = headers
-        captured["json"] = json
-        return _FakeResponse(
-            {
-                "search_results": [
-                    {"title": "A", "url": "https://a.example.com/1"},
-                    {"title": "B", "url": "https://b.example.com/1"},
-                ],
-                "citations": ["https://a.example.com/1", "https://b.example.com/1"],
-            }
-        )
+    with pytest.raises(ResearchError, match="429") as excinfo:
+        client.search("q", max_results=5)
+    assert "Rate limited" in excinfo.value.message
 
-    monkeypatch.setattr(research_module.httpx, "post", fake_post)
 
+class _FakePerplexityCompletions:
+    def __init__(self, *, response=None, exc=None, captured=None):
+        self._response = response
+        self._exc = exc
+        self.captured = captured if captured is not None else {}
+
+    def create(self, *, model, messages):
+        self.captured["model"] = model
+        self.captured["messages"] = messages
+        if self._exc is not None:
+            raise self._exc
+        return self._response
+
+
+def _fake_perplexity_client(completions: _FakePerplexityCompletions) -> SimpleNamespace:
+    return SimpleNamespace(chat=SimpleNamespace(completions=completions))
+
+
+def test_perplexity_search_uses_search_results_field():
+    response = SimpleNamespace(
+        search_results=[
+            SimpleNamespace(url="https://a.example.com/1", title="A"),
+            SimpleNamespace(url="https://b.example.com/1", title="B"),
+        ],
+        citations=["https://a.example.com/1", "https://b.example.com/1"],
+    )
+    completions = _FakePerplexityCompletions(response=response)
     client = research_module.PerplexitySearchClient(api_key="test-key")
+    client._get_client = lambda: _fake_perplexity_client(completions)
+
     results = client.search("DuckDB vs Spark", max_results=10)
 
     assert [r.title for r in results] == ["A", "B"]
     assert [r.url for r in results] == ["https://a.example.com/1", "https://b.example.com/1"]
-    assert captured["headers"]["Authorization"] == "Bearer test-key"
-    assert captured["json"]["messages"] == [{"role": "user", "content": "DuckDB vs Spark"}]
+    assert completions.captured["model"] == "sonar"
+    assert completions.captured["messages"] == [{"role": "user", "content": "DuckDB vs Spark"}]
 
 
-def test_perplexity_falls_back_to_bare_citations_when_no_search_results(monkeypatch):
-    def fake_post(url, *, headers=None, json=None, timeout=None):
-        return _FakeResponse({"citations": ["https://a.example.com/1"]})
-
-    monkeypatch.setattr(research_module.httpx, "post", fake_post)
-
+def test_perplexity_falls_back_to_bare_citations_when_no_search_results():
+    response = SimpleNamespace(search_results=None, citations=["https://a.example.com/1"])
+    completions = _FakePerplexityCompletions(response=response)
     client = research_module.PerplexitySearchClient(api_key="test-key")
+    client._get_client = lambda: _fake_perplexity_client(completions)
+
     results = client.search("q", max_results=10)
 
     assert results == [SearchResult(url="https://a.example.com/1", title="https://a.example.com/1")]
@@ -389,6 +402,19 @@ def test_perplexity_missing_api_key_raises():
     client = research_module.PerplexitySearchClient(api_key="")
     with pytest.raises(ResearchError, match="PERPLEXITY_API_KEY"):
         client.search("q", max_results=5)
+
+
+def test_perplexity_search_wraps_api_errors_readably():
+    request = httpx.Request("POST", "https://api.perplexity.ai/chat/completions")
+    response = httpx.Response(429, request=request)
+    api_error = perplexity.APIStatusError("Rate limited", response=response, body=None)
+    completions = _FakePerplexityCompletions(exc=api_error)
+    client = research_module.PerplexitySearchClient(api_key="test-key")
+    client._get_client = lambda: _fake_perplexity_client(completions)
+
+    with pytest.raises(ResearchError, match="429") as excinfo:
+        client.search("q", max_results=5)
+    assert "Rate limited" in excinfo.value.message
 
 
 def test_build_search_client_dispatches_by_provider():

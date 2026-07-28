@@ -9,6 +9,7 @@ STATUS.md deviations. Zero network calls, fully deterministic.
 import json
 from pathlib import Path
 
+import anthropic
 import httpx
 import pytest
 
@@ -257,14 +258,14 @@ def test_cache_hit_is_not_blocked_by_exceeded_budget(tmp_path):
 # --- retry on 429/5xx (TDD 10.1 step 5) -------------------------------------
 
 
-def _http_error(status: int) -> httpx.HTTPStatusError:
+def _api_status_error(status: int) -> anthropic.APIStatusError:
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(status, request=request)
-    return httpx.HTTPStatusError("boom", request=request, response=response)
+    return anthropic.APIStatusError("boom", response=response, body=None)
 
 
 def test_retries_on_5xx_then_succeeds(tmp_path):
-    client = FakeLLMClient([_http_error(503), _echo_response()])
+    client = FakeLLMClient([_api_status_error(503), _echo_response()])
     gw = Gateway(_engine_config(), data_root=tmp_path, prompts_dir=PROMPTS_DIR, client=client)
 
     result = gw.complete("_wp02_echo", {"message": "hi"}, tier="cheap")
@@ -274,20 +275,49 @@ def test_retries_on_5xx_then_succeeds(tmp_path):
 
 
 def test_exhausts_retries_then_raises(tmp_path):
-    client = FakeLLMClient([_http_error(500), _http_error(500), _http_error(500)])
+    client = FakeLLMClient([_api_status_error(500), _api_status_error(500), _api_status_error(500)])
     gw = Gateway(_engine_config(), data_root=tmp_path, prompts_dir=PROMPTS_DIR, client=client)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(anthropic.APIStatusError):
         gw.complete("_wp02_echo", {"message": "hi"}, tier="cheap")
 
     assert len(client.calls) == 3  # config.llm.retry.max_attempts
 
 
 def test_does_not_retry_on_non_retryable_status(tmp_path):
-    client = FakeLLMClient([_http_error(400)])
+    client = FakeLLMClient([_api_status_error(400)])
     gw = Gateway(_engine_config(), data_root=tmp_path, prompts_dir=PROMPTS_DIR, client=client)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(anthropic.APIStatusError):
         gw.complete("_wp02_echo", {"message": "hi"}, tier="cheap")
 
     assert len(client.calls) == 1
+
+
+def _connection_error() -> anthropic.APIConnectionError:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return anthropic.APIConnectionError(message="timed out", request=request)
+
+
+def test_retries_on_read_timeout_then_succeeds(tmp_path):
+    """Regression: `APIConnectionError` (covers `APITimeoutError`) isn't an
+    `APIStatusError`, so it needs its own except clause in
+    `_call_with_retry` or it isn't retried at all -- a real production
+    failure on a slow reasoning-tier response."""
+    client = FakeLLMClient([_connection_error(), _echo_response()])
+    gw = Gateway(_engine_config(), data_root=tmp_path, prompts_dir=PROMPTS_DIR, client=client)
+
+    result = gw.complete("_wp02_echo", {"message": "hi"}, tier="cheap")
+
+    assert result.content == "hello world"
+    assert len(client.calls) == 2
+
+
+def test_exhausts_retries_on_repeated_timeout_then_raises(tmp_path):
+    client = FakeLLMClient([_connection_error(), _connection_error(), _connection_error()])
+    gw = Gateway(_engine_config(), data_root=tmp_path, prompts_dir=PROMPTS_DIR, client=client)
+
+    with pytest.raises(anthropic.APIConnectionError):
+        gw.complete("_wp02_echo", {"message": "hi"}, tier="cheap")
+
+    assert len(client.calls) == 3  # config.llm.retry.max_attempts

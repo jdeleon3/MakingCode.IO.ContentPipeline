@@ -211,6 +211,17 @@ class Brief(BaseModel):
     risk_flags: list[str] = Field(default_factory=list)
     status: BriefStatus = BriefStatus.CANDIDATE
 
+    @field_validator("weakest_point")
+    @classmethod
+    def _weakest_point_not_blank(cls, v: str) -> str:
+        """TDD 12 WP-08 Done-when: "weakest_point is required and non-empty
+        for every brief." Enforced at the model layer, not just at
+        `brief_generate`'s JSON schema, so any future producer of a `Brief`
+        gets the same guarantee for free."""
+        if not v.strip():
+            raise ValueError("weakest_point must not be blank")
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Piece
