@@ -124,6 +124,15 @@ class IndexingError(CEError):
     exit_code = Exit.ERROR
 
 
+class ResearchError(CEError):
+    """`harvest/research.py` (TDD 12 WP-07) failed for a reason other than
+    a gate blocking the run: a missing search-provider API key, or an
+    unknown `config.harvest.research.provider` value.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

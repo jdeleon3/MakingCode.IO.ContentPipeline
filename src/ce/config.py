@@ -123,6 +123,12 @@ class GitHarvestConfig(BaseModel):
 
 class ResearchConfig(BaseModel):
     max_sources: int = Field(ge=1)
+    # Swappable search backend (WP-07's `SearchClient` Protocol) — TDD names
+    # no provider at all here. "gemini" (grounding-with-Google-Search) is
+    # the default; "duckduckgo" needs no API key as a zero-config fallback;
+    # "perplexity" is a third option. Needs GEMINI_API_KEY / PERPLEXITY_API_KEY
+    # respectively when selected.
+    provider: Literal["duckduckgo", "gemini", "perplexity"] = "gemini"
 
 
 class InventoryConfig(BaseModel):

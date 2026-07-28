@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "stance": { "type": "string", "enum": ["supports", "contradicts", "neutral"] },
+    "summary": { "type": "string", "minLength": 1 }
+  },
+  "required": ["stance", "summary"],
+  "additionalProperties": false
+}

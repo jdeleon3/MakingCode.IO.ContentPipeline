@@ -134,6 +134,29 @@ def test_inventory_max_briefs_must_be_at_least_min(tmp_path):
         load_engine_config(path)
 
 
+def test_research_provider_defaults_to_gemini(tmp_path):
+    path = _write_yaml(tmp_path / "engine.yml", _valid_engine_dict())
+    config = load_engine_config(path)
+    assert config.harvest.research.provider == "gemini"
+
+
+@pytest.mark.parametrize("provider", ["duckduckgo", "gemini", "perplexity"])
+def test_research_provider_accepts_each_swappable_backend(tmp_path, provider):
+    data = _valid_engine_dict()
+    data["harvest"]["research"] = {"max_sources": 8, "provider": provider}
+    path = _write_yaml(tmp_path / "engine.yml", data)
+    config = load_engine_config(path)
+    assert config.harvest.research.provider == provider
+
+
+def test_research_provider_rejects_unknown_backend(tmp_path):
+    data = _valid_engine_dict()
+    data["harvest"]["research"] = {"max_sources": 8, "provider": "bing"}
+    path = _write_yaml(tmp_path / "engine.yml", data)
+    with pytest.raises(ConfigError, match="provider"):
+        load_engine_config(path)
+
+
 def test_missing_engine_config_file_is_a_readable_error(tmp_path):
     with pytest.raises(ConfigError, match="could not read"):
         load_engine_config(tmp_path / "does-not-exist.yml")

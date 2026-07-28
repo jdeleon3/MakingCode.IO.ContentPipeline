@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-06
+**Last session:** 2026-07-27 — completed WP-07
 
 ---
 
@@ -29,8 +29,8 @@
 | WP-04 | Capture & transcription | ✅ done | 188 tests passing (33 new); `ffmpeg`/`OPENAI_API_KEY` now required in `doctor.py` |
 | WP-05 | Git harvest & safety gates ⚠️ | ✅ done | 225 tests passing (37 new); `gitleaks` now required in `doctor.py` |
 | WP-06 | Index & dedupe | ✅ done | 240 tests passing (15 new); added `numpy` dependency |
-| WP-07 | External research | 🔵 **next** | |
-| WP-08 | Inventory generator (MATCH) ⭐ | ⬜ | **MVP milestone** — usable system after this |
+| WP-07 | External research | ✅ done | 261 tests passing (21 new); swappable search: gemini (default) / duckduckgo / perplexity; `GEMINI_API_KEY` now required in `doctor.py` |
+| WP-08 | Inventory generator (MATCH) ⭐ | 🔵 **next** | **MVP milestone** — usable system after this |
 | WP-09 | Writer & grader | ⬜ | |
 | WP-10 | Claim verification | ⬜ | |
 | WP-11 | Asset pipeline | ⬜ | flip `mermaid-cli`, `playwright` to required |
@@ -45,6 +45,43 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-07 · three swappable search providers implemented
+  (`GeminiGroundedSearchClient`/`DuckDuckGoSearchClient`/
+  `PerplexitySearchClient`), selected via a new
+  `config.harvest.research.provider` field and `research.build_search_client()`
+  — TDD 12's Build line names no search provider at all.** Unlike WP-02/04's
+  "no *second* provider specified" gap (a first provider was named;
+  dispatch for a hypothetical second just isn't built), there wasn't even
+  a first one specified here, so this is a genuine addition, not a
+  dispatch-completion. `gemini` (grounding-with-Google-Search) is the
+  **default** (operator choice, made explicit during this session —
+  `GEMINI_API_KEY` is accordingly now required in `doctor.py`, same as
+  WP-04 flipping `OPENAI_API_KEY`). `duckduckgo` (scraped from the no-JS
+  HTML results page via stdlib `html.parser`, no new dependency) remains
+  available as a zero-config, no-API-key fallback — keeping TDD 2.4 S3's
+  $20/month budget intact for anyone who picks it. `perplexity` (Sonar
+  online models; needs `PERPLEXITY_API_KEY`) is a third option, never
+  added to `doctor.py`'s required-flags table since it's an alternative,
+  not the default. `gemini`/`perplexity` are both adapters over an
+  answer-with-citations API, not a plain ranked link list — `search()`
+  extracts `SearchResult`s from each response's citation metadata
+  (`groundingChunks` / `search_results`/`citations`) rather than treating
+  the synthesized answer as one source. `research()` itself only depends
+  on the `SearchClient` Protocol; automated tests inject fakes for all
+  three rather than hitting the network, for the same determinism reason
+  WP-02's `AnthropicClient` isn't exercised by the test suite either — not
+  because anything is missing from this machine, just to keep tests
+  fast/free/deterministic.
+
+- **WP-07 · `_dedupe_by_domain` dedupes on exact host
+  (`urlparse(url).netloc`), not registrable domain (eTLD+1).** TDD 12
+  says "dedupe by domain" without defining the term. Exact-host dedupe
+  means `blog.example.com` and `docs.example.com` count as different
+  domains and can both appear — a deliberate choice (avoids a public-
+  suffix-list dependency for marginal benefit at this system's source
+  count), not an oversight, but worth flagging as the narrower of two
+  reasonable readings.
 
 - **WP-06 · `gates/dedupe.py`'s `check()`/`max_similarity()` take a
   precomputed embedding (`np.ndarray`) plus an open `sqlite3.Connection`,
