@@ -381,7 +381,10 @@ def brief_list(
 @brief_app.command("select")
 def brief_select(brief_id: str = typer.Argument(..., help="e.g. br-01")) -> None:
     """Promote a brief to a piece. Refuses briefs with weak grounding."""
-    raise NotImplementedYet("brief select", "WP-09")
+    from ce.produce import writer
+
+    piece = writer.select_brief(brief_id, data_root=Path("data"))
+    console.success(f"selected {brief_id} -> piece {piece.id}")
 
 
 # ---------------------------------------------------------------------------
@@ -395,8 +398,62 @@ def produce(
     force: bool = typer.Option(False, "--force"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the LLM response cache."),
 ) -> None:
-    """Draft, grade and revise until the piece scores. Stops for your edit (ADR-008)."""
-    raise NotImplementedYet("produce", "WP-09")
+    """Draft, grade and revise until the piece scores. Stops for your edit (ADR-008).
+
+    `--force` is accepted for CLI-contract completeness (TDD 9) but isn't
+    meaningfully enforced yet: `produce()` always redoes the full loop and
+    overwrites `article.md`/`grades.json` on every call, the same accepted
+    gap as `ce harvest --force` (no stage-level resumability built).
+    """
+    from ce import index as index_module
+    from ce import store
+    from ce.config import load_engine_config
+    from ce.harvest import git as git_harvest_module
+    from ce.harvest import research as research_module
+    from ce.llm.gateway import Gateway
+    from ce.produce import writer
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    brief = next(
+        (b for b in store.read_briefs(data_root, project.slug) if b.id == piece.brief_id), None
+    )
+    if brief is None:
+        raise CEError(f"brief {piece.brief_id!r} (piece {piece_id!r}'s source) no longer exists")
+
+    config = load_engine_config()
+    gateway = Gateway(config, data_root=data_root)
+    voice = writer.VoiceRagSettings(
+        embeddings_client=index_module.OpenAIEmbeddingsClient(),
+        embeddings_model=config.embeddings.model,
+    )
+    harvest_dir = store.harvest_dir(data_root, project.slug)
+
+    produced = writer.produce(
+        piece,
+        brief,
+        project,
+        data_root=data_root,
+        gateway=gateway,
+        git_harvest=git_harvest_module.read_git_harvest(harvest_dir),
+        research_harvest=research_module.read_research_harvest(harvest_dir),
+        min_grade=config.produce.min_grade,
+        max_attempts=config.produce.max_attempts,
+        grade_weights=config.produce.grade_weights,
+        voice=voice,
+        cache=not no_cache,
+    )
+
+    final = produced.grades[-1] if produced.grades else None
+    if final:
+        console.success(
+            f"drafted {piece_id}: {len(produced.grades)} attempt(s), final grade {final.total:.1f}"
+        )
+    console.out(f"edit article.md, then: ce verify {piece_id}")
 
 
 @app.command("verify")

@@ -41,8 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("brief", "select"): "WP-09",
-    ("produce",): "WP-09",
     ("verify",): "WP-10",
     ("assets",): "WP-11",
     ("render",): "WP-12",
@@ -94,8 +92,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("brief", "select"): ["br-01"],
-        ("produce",): ["pc-0001"],
         ("verify",): ["pc-0001"],
         ("assets",): ["pc-0001"],
         ("render",): ["pc-0001"],
@@ -635,6 +631,152 @@ def test_brief_list_prints_briefs_and_filters_by_status(tmp_path, monkeypatch):
     bad_status_result = runner.invoke(cli.app, ["brief", "list", "test-proj", "--status", "bogus"])
     assert bad_status_result.exit_code != Exit.OK
     assert isinstance(bad_status_result.exception, CEError)
+
+
+# --- brief select / produce (WP-09, TDD 12 "Done when") ---------------------
+
+
+def test_brief_select_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce brief select` used to raise `NotImplementedYet("brief select",
+    "WP-09")`; now it should reach real logic (and fail on an unknown
+    brief, not on "not implemented yet")."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["brief", "select", "br-99"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_produce_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """Same wiring check as `test_brief_select_is_wired_not_a_stub`, for
+    `ce produce`."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["produce", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_brief_select_promotes_a_brief_to_a_piece(tmp_path, monkeypatch):
+    from datetime import date
+
+    from ce import store
+    from ce.models import Brief, BriefDemand, BriefStatus, GroundingStrength, Project
+
+    monkeypatch.chdir(tmp_path)
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+                status=BriefStatus.CANDIDATE,
+            )
+        ],
+    )
+
+    result = runner.invoke(cli.app, ["brief", "select", "br-01"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "pc-0001" in result.output
+
+    [reloaded] = store.read_briefs(data_root, "test-proj")
+    assert reloaded.status == BriefStatus.SELECTED
+    piece = store.read_piece(data_root, "test-proj", "pc-0001")
+    assert piece.brief_id == "br-01"
+
+
+def test_produce_end_to_end_drafts_grades_and_writes_article(tmp_path, monkeypatch):
+    """Wires select -> produce through the real CLI commands, with
+    Anthropic/OpenAI (article draft/grade/revise + voice-RAG embeddings)
+    faked -- same shape as `test_capture_audio_end_to_end`."""
+    import json
+    import shutil
+    from datetime import date
+
+    from ce import index as index_module
+    from ce import store
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+    from ce.models import Brief, BriefDemand, BriefStatus, GroundingStrength, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_briefs(
+        data_root,
+        "test-proj",
+        [
+            Brief(
+                id="br-01",
+                project="test-proj",
+                archetype="why_this_project",
+                title="Why this project",
+                angle="origin",
+                demand=BriefDemand(recurrence=1, signals=[]),
+                grounding_strength=GroundingStrength.STRONG,
+                dedupe_max_similarity=0.1,
+                weakest_point="n=1",
+                status=BriefStatus.CANDIDATE,
+            )
+        ],
+    )
+    select_result = runner.invoke(cli.app, ["brief", "select", "br-01"])
+    assert select_result.exit_code == Exit.OK, select_result.output
+
+    grade_json = json.dumps(
+        {
+            "scores": {"hook": 9, "evidence": 9, "specificity": 9, "voice": 9, "cta": 9},
+            "top_fixes": [],
+        }
+    )
+
+    class FakeAnthropicClient:
+        def __init__(self):
+            self._responses = iter(["# Drafted article\n\nBody.", grade_json])
+
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content=next(self._responses), in_tokens=10, out_tokens=5)
+
+    class FakeEmbeddingsClient:
+        def embed(self, text, *, model):
+            return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+    monkeypatch.setattr(index_module, "OpenAIEmbeddingsClient", FakeEmbeddingsClient)
+
+    result = runner.invoke(cli.app, ["produce", "pc-0001"])
+
+    assert result.exit_code == Exit.OK, result.output
+    assert "ce verify pc-0001" in result.output
+
+    piece = store.read_piece(data_root, "test-proj", "pc-0001")
+    assert piece.generated_at is not None
+    assert len(piece.grades) == 1
+    article = (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").read_text(
+        encoding="utf-8"
+    )
+    assert article == "# Drafted article\n\nBody."
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "scores": {
+      "type": "object",
+      "properties": {
+        "hook": { "type": "number", "minimum": 0, "maximum": 9.5 },
+        "evidence": { "type": "number", "minimum": 0, "maximum": 9.5 },
+        "specificity": { "type": "number", "minimum": 0, "maximum": 9.5 },
+        "voice": { "type": "number", "minimum": 0, "maximum": 9.5 },
+        "cta": { "type": "number", "minimum": 0, "maximum": 9.5 }
+      },
+      "required": ["hook", "evidence", "specificity", "voice", "cta"],
+      "additionalProperties": false
+    },
+    "top_fixes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": ["hook", "evidence", "specificity", "voice", "cta"]
+          },
+          "issue": { "type": "string", "minLength": 1 },
+          "suggested_change": { "type": "string", "minLength": 1 },
+          "impact": { "type": "string", "enum": ["high", "medium", "low"] }
+        },
+        "required": ["dimension", "issue", "suggested_change", "impact"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["scores", "top_fixes"],
+  "additionalProperties": false
+}

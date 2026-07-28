@@ -187,6 +187,43 @@ def test_read_briefs_before_any_harvest_is_empty(tmp_path):
     assert store.read_briefs(tmp_path, "no-harvest-yet") == []
 
 
+def test_find_brief_scans_every_project(tmp_path):
+    """`ce brief select <brief-id>` (TDD 9) takes no --project, so
+    `find_brief` has to locate it by scanning."""
+    proj_a, proj_b = _sample_project("proj-a"), _sample_project("proj-b")
+    brief_a = _sample_brief(proj_a.slug)
+    brief_b = Brief(**{**_sample_brief(proj_b.slug).model_dump(), "id": "br-02"})
+    store.write_briefs(tmp_path, proj_a.slug, [brief_a])
+    store.write_briefs(tmp_path, proj_b.slug, [brief_b])
+    store.write_project(tmp_path, proj_a)
+    store.write_project(tmp_path, proj_b)
+
+    found = store.find_brief(tmp_path, "br-02")
+
+    assert found is not None
+    project, brief = found
+    assert project.slug == "proj-b"
+    assert brief.id == "br-02"
+
+
+def test_find_brief_missing_returns_none(tmp_path):
+    assert store.find_brief(tmp_path, "does-not-exist") is None
+
+
+def test_find_brief_ambiguous_across_projects_is_an_error(tmp_path):
+    """Brief ids restart at `br-01` per project (`harvest/inventory.py`),
+    so the same id existing in two projects is a real, unresolved ambiguity
+    -- not something to silently pick a winner for."""
+    proj_a, proj_b = _sample_project("proj-a"), _sample_project("proj-b")
+    store.write_project(tmp_path, proj_a)
+    store.write_project(tmp_path, proj_b)
+    store.write_briefs(tmp_path, proj_a.slug, [_sample_brief(proj_a.slug)])
+    store.write_briefs(tmp_path, proj_b.slug, [_sample_brief(proj_b.slug)])
+
+    with pytest.raises(ConfigError, match="ambiguous"):
+        store.find_brief(tmp_path, "br-01")
+
+
 # --- Piece ------------------------------------------------------------------
 
 
@@ -202,6 +239,52 @@ def test_piece_round_trips_through_disk(tmp_path):
     )
     store.write_piece(tmp_path, project.slug, piece)
     assert store.read_piece(tmp_path, project.slug, piece.id) == piece
+
+
+def test_generate_piece_id_starts_at_0001_and_is_sequential(tmp_path):
+    project = _sample_project()
+    assert store.generate_piece_id(tmp_path, project.slug) == "pc-0001"
+
+    store.write_piece(
+        tmp_path,
+        project.slug,
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project=project.slug,
+            slug="first-piece",
+            created_at=datetime(2026, 7, 26, 9, 0, tzinfo=UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+
+    assert store.generate_piece_id(tmp_path, project.slug) == "pc-0002"
+
+
+def test_find_piece_scans_every_project(tmp_path):
+    proj_a, proj_b = _sample_project("proj-a"), _sample_project("proj-b")
+    store.write_project(tmp_path, proj_a)
+    store.write_project(tmp_path, proj_b)
+    piece = Piece(
+        id="pc-0001",
+        brief_id="br-01",
+        project=proj_b.slug,
+        slug="a-piece",
+        created_at=datetime(2026, 7, 26, 9, 0, tzinfo=UTC),
+        article_path=Path("article.md"),
+    )
+    store.write_piece(tmp_path, proj_b.slug, piece)
+
+    found = store.find_piece(tmp_path, "pc-0001")
+
+    assert found is not None
+    project, found_piece = found
+    assert project.slug == "proj-b"
+    assert found_piece.id == "pc-0001"
+
+
+def test_find_piece_missing_returns_none(tmp_path):
+    assert store.find_piece(tmp_path, "does-not-exist") is None
 
 
 # --- PostRecord ---------------------------------------------------------------

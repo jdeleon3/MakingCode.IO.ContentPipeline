@@ -105,6 +105,10 @@ def piece_yaml_path(data_root: Path, slug: str, piece_id: str) -> Path:
     return piece_dir(data_root, slug, piece_id) / "piece.yml"
 
 
+def grades_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
+    return piece_dir(data_root, slug, piece_id) / "grades.json"
+
+
 def posted_yaml_path(data_root: Path) -> Path:
     return data_root / "posted.yml"
 
@@ -212,6 +216,30 @@ def write_briefs(data_root: Path, slug: str, briefs: list[Brief]) -> None:
     _dump_model_list(briefs, briefs_yaml_path(data_root, slug))
 
 
+def find_brief(data_root: Path, brief_id: str) -> tuple[Project, Brief] | None:
+    """Scans every project for a brief with this id.
+
+    TDD 9's CLI contract gives `ce brief select <brief-id>` no `--project`
+    option, so the project has to be discovered rather than supplied. Brief
+    ids are only unique *within* a project (`br-01`, `br-02`, ... restarts
+    at 1 for every project — see `harvest/inventory.py::generate`), so an id
+    that matches in more than one project is a genuine ambiguity, not
+    something to resolve by silently picking the first hit.
+    """
+    matches = [
+        (project, brief)
+        for project in list_projects(data_root)
+        for brief in read_briefs(data_root, project.slug)
+        if brief.id == brief_id
+    ]
+    if len(matches) > 1:
+        raise ConfigError(
+            f"brief id {brief_id!r} is ambiguous across projects: "
+            f"{', '.join(p.slug for p, _ in matches)}"
+        )
+    return matches[0] if matches else None
+
+
 # ---------------------------------------------------------------------------
 # Piece
 # ---------------------------------------------------------------------------
@@ -230,6 +258,36 @@ def list_pieces(data_root: Path, slug: str) -> list[Piece]:
     if not directory.exists():
         return []
     return [_load_model(Piece, p) for p in sorted(directory.glob("*/piece.yml"))]
+
+
+def find_piece(data_root: Path, piece_id: str) -> tuple[Project, Piece] | None:
+    """Scans every project for a piece with this id — same rationale as
+    `find_brief`: `ce produce <piece-id>` (TDD 9) takes no `--project`."""
+    matches = [
+        (project, piece)
+        for project in list_projects(data_root)
+        for piece in list_pieces(data_root, project.slug)
+        if piece.id == piece_id
+    ]
+    if len(matches) > 1:
+        raise ConfigError(
+            f"piece id {piece_id!r} is ambiguous across projects: "
+            f"{', '.join(p.slug for p, _ in matches)}"
+        )
+    return matches[0] if matches else None
+
+
+def generate_piece_id(data_root: Path, slug: str) -> str:
+    """A human-readable, collision-safe piece id: `pc-0001`, `pc-0002`, ...
+    (TDD 5.2 example: `id: pc-0007`). Same collision-safe-by-scanning
+    approach as `generate_capture_id` — numbered per project, not globally.
+    """
+    directory = pieces_dir(data_root, slug)
+    existing = {p.name for p in directory.glob("pc-*")} if directory.exists() else set()
+    n = 1
+    while f"pc-{n:04d}" in existing:
+        n += 1
+    return f"pc-{n:04d}"
 
 
 # ---------------------------------------------------------------------------

@@ -176,7 +176,9 @@ class GeminiGroundedSearchClient:
                 ),
             )
         except genai_errors.APIError as exc:
-            raise ResearchError(f"Gemini search request failed ({exc.code}): {exc.message}") from exc
+            raise ResearchError(
+                f"Gemini search request failed ({exc.code}): {exc.message}"
+            ) from exc
 
         results: list[SearchResult] = []
         candidates = response.candidates or []
@@ -353,6 +355,21 @@ def _dedupe_by_domain(results: list[SearchResult]) -> list[SearchResult]:
 def _write_research_json(path: Path, harvest: ResearchHarvest) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(harvest.model_dump_json(indent=2), encoding="utf-8")
+
+
+def read_research_harvest(harvest_dir: Path) -> ResearchHarvest:
+    """Reads back `harvest_dir/research.json` (written by `research()`).
+    Needed by WP-09's `produce()`, which runs as a separate `ce produce`
+    invocation after `ce harvest` already exited -- there's no in-memory
+    `ResearchHarvest` left over the way `ce harvest` has one for its own
+    call into `inventory.generate()`. An empty harvest if the file doesn't
+    exist yet, rather than raising -- same "best-effort optional input"
+    shape as `harvest/inventory.py`'s sweeps/inbound context.
+    """
+    path = harvest_dir / "research.json"
+    if not path.exists():
+        return ResearchHarvest(sources=[])
+    return ResearchHarvest.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def research(

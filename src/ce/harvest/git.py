@@ -306,6 +306,18 @@ def _write_git_json(path: Path, harvest: GitHarvest) -> None:
     path.write_text(harvest.model_dump_json(indent=2), encoding="utf-8")
 
 
+def read_git_harvest(harvest_dir: Path) -> GitHarvest:
+    """Reads back `harvest_dir/git.json` (written by `extract()`). Needed
+    by WP-09's `produce()`, which runs as a separate `ce produce`
+    invocation after `ce harvest` already exited -- see
+    `research.read_research_harvest`'s docstring for the same rationale.
+    """
+    path = harvest_dir / "git.json"
+    if not path.exists():
+        return GitHarvest(repos=[])
+    return GitHarvest.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 # ---------------------------------------------------------------------------
 # extract() — TDD 10.3 public interface
 # ---------------------------------------------------------------------------

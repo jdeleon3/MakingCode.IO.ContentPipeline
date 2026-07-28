@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-08
+**Last session:** 2026-07-28 — completed WP-09
 
 ---
 
@@ -31,8 +31,8 @@
 | WP-06 | Index & dedupe | ✅ done | 240 tests passing (15 new); added `numpy` dependency |
 | WP-07 | External research | ✅ done | 261 tests passing (21 new); swappable search: gemini (default) / duckduckgo / perplexity; `GEMINI_API_KEY` now required in `doctor.py` |
 | WP-08 | Inventory generator (MATCH) ⭐ | ✅ done | 279 tests passing (18 new); **MVP milestone** — usable system after this |
-| WP-09 | Writer & grader | 🔵 **next** | |
-| WP-10 | Claim verification | ⬜ | |
+| WP-09 | Writer & grader | ✅ done | 323 tests passing (44 new) |
+| WP-10 | Claim verification | 🔵 **next** | |
 | WP-11 | Asset pipeline | ⬜ | flip `mermaid-cli`, `playwright` to required |
 | WP-12 | Renditions | ⬜ | |
 | WP-13 | Packager & REVIEW.html | ⬜ | |
@@ -45,6 +45,85 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-09 · `ce brief select <brief-id>` / `ce produce <piece-id>` take no
+  `--project` (TDD 9's literal CLI contract), so both are found by scanning
+  every project (`store.find_brief` / `store.find_piece`).** Brief and
+  piece ids restart per project (`br-01`, `pc-0001`, ... — WP-08's
+  `inventory.generate` / WP-09's `store.generate_piece_id`), so the same id
+  existing in two projects is a real, unresolved ambiguity — both helpers
+  raise `ConfigError` naming the colliding projects rather than silently
+  picking one.
+
+- **WP-09 · `article_draft`'s "cited evidence in full" (TDD 10.5) and
+  "receives raw + clean transcripts" (TDD 11) resolve each
+  `Brief.evidence[].ref` back to its real source** — a capture id to
+  `Capture.derived`'s raw+clean transcript files, a commit SHA (full or
+  7-char short, same match rule as WP-08's citation-resolvability check) to
+  `git.json`'s already-condensed `summary` (never a raw diff), a research
+  URL to `research.json`'s `summary`. Falls back to the brief's own
+  MATCH-time `quote` only if the ref no longer resolves (harvest re-run,
+  deleted capture) — never drops a citation outright. Required two new
+  read helpers, `harvest.git.read_git_harvest` /
+  `harvest.research.read_research_harvest`, since `ce produce` runs as a
+  separate process invocation from `ce harvest` with no in-memory
+  `GitHarvest`/`ResearchHarvest` left over to reuse (unlike WP-08's
+  `inventory.generate`, called in the same `ce harvest` run that just
+  produced them) — both default to an empty harvest if the file doesn't
+  exist yet rather than raising, same "best-effort optional input" shape as
+  WP-08's sweeps/inbound context. First pass at this WP resolved evidence
+  only from the brief's own condensed `note`/`quote` fields; caught and
+  fixed against the literal TDD language during this same session's
+  `wp-spec-conformance` review before closing.
+
+- **WP-09 · `grade.schema.json` has no `total` field — the model returns
+  only per-dimension `scores` + `top_fixes`; `total` is computed in code
+  from `config.produce.grade_weights` (`writer._weighted_total`).** Same
+  "don't trust the model with deterministic bookkeeping" split WP-08 used
+  for `Brief.id`/`dedupe_max_similarity`. The 9.5 ceiling ("a 10 isn't
+  achievable by construction," TDD 10.5) is enforced at the schema level
+  (`maximum: 9.5` per dimension, so a weighted sum of dimensions that each
+  top out at 9.5 with weights summing to 1.0 can't exceed it either), not
+  just stated in the prompt.
+
+- **WP-09 · `grades.json`'s shape is invented — TDD names the file (§7's
+  directory layout) and requires it to "record every attempt with prompt
+  versions" (12's Done-when) but never specifies a schema.** Implemented as
+  `{"attempts": [{attempt, total, scores, draft_prompt_version,
+  grade_prompt_version, top_fixes}, ...]}` — `draft_prompt_version` is
+  whichever prompt actually produced the draft being graded that attempt
+  (`article_draft` for attempt 1, `article_revise` for later attempts,
+  since revise — not draft — regenerates the article mid-loop).
+  `piece.yml#grades` stays the terser TDD 5.2 example shape (attempt/total/
+  scores only); `grades.json` is the richer sibling the Done-when line
+  actually asks for.
+
+- **WP-09 · a `top_fix`'s `impact` is a `high`/`medium`/`low` enum, not a
+  number, and `writer._format_fixes` defensively re-sorts by it before the
+  revise prompt sees them rather than trusting the model's array order.**
+  TDD 10.5 says `top_fixes` are "ranked by impact" without specifying the
+  field's type; an enum is simpler for the model to reason about and to
+  sort deterministically than an unbounded numeric score.
+
+- **WP-09 · `article_draft`'s "platform-agnostic length target" (TDD 10.5)
+  is a hardcoded prompt constant (`writer._LENGTH_TARGET = "900-1500
+  words"`), not a config field.** TDD gives no number and no config key for
+  it; adding an `engine.yml` field for a single hardcoded prompt input felt
+  like more machinery than the actual need — revisit if per-project tuning
+  turns out to matter.
+
+- **WP-09 · voice RAG (`voice/*.md` → top-5 chunks) is brute-force
+  cosine similarity, re-embedding every paragraph chunk on every
+  `produce()` call — no persistent index.** Same ADR-003 bet WP-06 made for
+  piece dedupe (`gates/dedupe.py`), scaled down further: a single
+  operator's own prior-writing corpus is smaller than the piece corpus
+  ADR-003 already sized for.
+
+- **WP-09 · `ce produce --force` is accepted (TDD 9) but not meaningfully
+  enforced — `produce()` always redoes the full draft/grade/revise loop and
+  overwrites `article.md`/`grades.json` on every call.** Same accepted gap
+  as `ce harvest --force` (no stage-level resumability manifest built for
+  either stage yet).
 
 - **2026-07-28 (post-WP-08, cross-cutting) · every provider client with an
   official SDK now uses it, not hand-rolled `httpx`, reversing WP-02's/
