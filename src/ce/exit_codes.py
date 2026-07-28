@@ -154,6 +154,17 @@ class AssetError(CEError):
     exit_code = Exit.ERROR
 
 
+class RenditionError(CEError):
+    """`produce/renditions.py` (TDD 10.6, 12 WP-12) failed: a platform's
+    generated copy still violates one of §10.6's mechanical validations
+    after the one allowed regeneration attempt. Mirrors `AssetError`'s
+    "missing binary produces a clear error" shape, but for a mechanical
+    validation failure instead of a missing dependency.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

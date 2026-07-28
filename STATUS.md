@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-11
+**Last session:** 2026-07-28 — completed WP-12
 
 ---
 
@@ -34,8 +34,8 @@
 | WP-09 | Writer & grader | ✅ done | 323 tests passing (44 new) |
 | WP-10 | Claim verification | ✅ done | 337 tests passing (14 new) |
 | WP-11 | Asset pipeline | ✅ done | 355 tests passing (18 new); `mermaid-cli`/`playwright` now required in `doctor.py` — `ce doctor` will fail on a machine without both installed |
-| WP-12 | Renditions | 🔵 **next** | |
-| WP-13 | Packager & REVIEW.html | ⬜ | |
+| WP-12 | Renditions | ✅ done | 379 tests passing (26 new) |
+| WP-13 | Packager & REVIEW.html | 🔵 **next** | |
 | WP-14 | Site publish | ⬜ | |
 | WP-15 | Post-back & metrics | ⬜ | |
 | WP-16 | Trend sweep | ⬜ | independent after WP-02 |
@@ -45,6 +45,70 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-12 · no `Rendition` schema exists anywhere in TDD 5.2 — `piece.yml`'s
+  own example has no `renditions` key, and TDD 5.4/§7 only names the file
+  paths (`renditions/{linkedin,facebook,youtube}.yml`), not their shape.**
+  Invented this session, same as WP-09's `grades.json`: `platform`, `body`,
+  `first_comment` (LinkedIn only), `title`/`chapters` (YouTube only,
+  structurally different from a single body), `prompt_version`,
+  `generated_at`. One shared model rather than three per-platform ones, so
+  `ce package` (WP-13) can iterate over a piece's renditions uniformly.
+
+- **WP-12 · the canonical URL used in LinkedIn's first comment, Facebook's
+  inline link, and YouTube's description is computed deterministically as
+  `config.identity.site_url + "/blog/" + piece.slug`, never read from
+  `piece.published.url`.** WP-12 runs *before* WP-13/WP-14 in the pipeline
+  (TDD 12.1's dependency graph: WP-09 → WP-12 → WP-13, separately from
+  WP-09 → WP-10 → WP-14), so nothing has published the piece yet at render
+  time — `published.url` is unset. The computed shape matches TDD 5.2's own
+  `piece.yml` example (`https://example.com/blog/duckdb-memory-limit-reality`
+  is exactly `site_url + "/blog/" + slug`), i.e. the URL WP-14 will actually
+  publish to, so the link is correct in advance rather than a placeholder.
+  UTM parameters (`config.utm.template`) are appended per platform on top of
+  this base URL, for every platform, including YouTube — TDD gives no
+  per-platform opt-out for UTM tracking.
+
+- **WP-12 · `config/platforms/facebook.yml` and `youtube.yml` have no TDD
+  example to copy — only `linkedin.yml` is spelled out verbatim (TDD 8).**
+  TDD §11's registry gives one-line notes only ("Facebook: links OK; native
+  image", "YouTube: title ≤60, desc hook 150, chapters from 00:00"). Every
+  numeric value in both files (max_chars, hook_chars, image dims,
+  links_in_body, allow_unicode_styling, ...) is this session's own choice,
+  not derived from the TDD. YouTube's `hook_chars: 150` is the one number
+  that *is* TDD-literal ("desc hook 150").
+
+- **WP-12 · YouTube's title (≤60 chars) and chapter (start at `00:00`,
+  strictly ascending) rules are hardcoded in `produce/renditions.py`
+  (`_YOUTUBE_TITLE_MAX_CHARS`, `_validate_chapters`), not driven by
+  `PlatformConfig` fields.** TDD 10.6/11 state both as fixed numbers/rules,
+  not per-platform config (unlike `max_chars`/`hook_chars`, which genuinely
+  vary by platform). `youtube.yml`'s `hook_chars` field is reused for a
+  different assertion than LinkedIn's: LinkedIn's hook must contain *no*
+  URL, YouTube's description hook must *contain* the URL — same field,
+  opposite check, because both are "does the visible-before-fold span
+  satisfy platform-specific rule X" and TDD's own bullet list already
+  branches validation logic per platform name, so reusing the field instead
+  of adding a second one felt more honest than inventing an unused knob.
+  `youtube.yml`'s `links_in_body: true` is schema-required
+  (`PlatformConfig.links_in_body` has no default) but is not actually read
+  by `_validate_youtube` — the description's URL-presence check is
+  unconditional there, driven only by the hardcoded hook-chars logic. The
+  field is set to a defensible value (`true`, since a link is required, not
+  forbidden) but is decorative for YouTube rather than load-bearing;
+  flagged by this session's `wp-spec-conformance` review, not a correctness
+  bug (every Done-when criterion still passes) but worth knowing if
+  `youtube.yml` is hand-edited later expecting that field to do something.
+
+- **WP-12 · LinkedIn's "first `hook_chars` ... end at a sentence boundary"
+  check (TDD 10.6) is implemented as "some sentence-ending punctuation
+  (`.`/`!`/`?`) exists anywhere within the first `hook_chars` characters",
+  not "the character at exactly `hook_chars` is itself a sentence
+  boundary".** TDD's own wording is inherently fuzzy for a "mechanical"
+  check — this is the looser of two reasonable readings, chosen because
+  requiring an exact-position match would reject a hook that reads
+  perfectly well but happens to end its sentence a few characters before or
+  after the fold.
 
 - **WP-11 · no `Asset` schema exists anywhere in TDD 5.2, and
   `pieces/<id>/assets/`'s *inputs* (as opposed to its rendered outputs)

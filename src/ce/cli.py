@@ -580,7 +580,49 @@ def render(
     ),
 ) -> None:
     """Adapt the article into per-platform renditions."""
-    raise NotImplementedYet("render", "WP-12")
+    from ce import store
+    from ce.config import load_engine_config, load_platform_config
+    from ce.llm.gateway import Gateway
+    from ce.produce import renditions as renditions_module
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+    project, piece = found
+
+    article_path = store.piece_dir(data_root, project.slug, piece.id) / piece.article_path
+    if not article_path.exists():
+        raise CEError(f"{article_path} does not exist -- run `ce produce {piece_id}` first")
+    article = article_path.read_text(encoding="utf-8")
+
+    names = platform or list(renditions_module.DEFAULT_PLATFORMS)
+    unknown = [n for n in names if n not in renditions_module.DEFAULT_PLATFORMS]
+    if unknown:
+        raise CEError(
+            f"unknown platform(s): {', '.join(unknown)}, expected one of "
+            f"{', '.join(renditions_module.DEFAULT_PLATFORMS)}"
+        )
+    platform_configs = {
+        name: load_platform_config(Path("config/platforms") / f"{name}.yml") for name in names
+    }
+
+    config = load_engine_config()
+    gateway = Gateway(config, data_root=data_root)
+
+    results = renditions_module.render(
+        piece,
+        article,
+        data_root=data_root,
+        gateway=gateway,
+        platform_configs=platform_configs,
+        site_url=config.identity.site_url,
+        utm_template=config.utm.template,
+    )
+
+    for r in results:
+        console.success(f"wrote {r.platform.value} rendition")
+    console.out(f"\n{len(results)} rendition(s) written")
 
 
 @app.command("package")

@@ -19,7 +19,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from ce.exit_codes import ConfigError
-from ce.models import Brief, Capture, Piece, PostRecord, Project
+from ce.models import Brief, Capture, Piece, PostRecord, Project, Rendition
 
 # ---------------------------------------------------------------------------
 # Generic YAML I/O
@@ -111,6 +111,14 @@ def grades_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
 
 def verification_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
     return piece_dir(data_root, slug, piece_id) / "verification.json"
+
+
+def renditions_dir(data_root: Path, slug: str, piece_id: str) -> Path:
+    return piece_dir(data_root, slug, piece_id) / "renditions"
+
+
+def rendition_yaml_path(data_root: Path, slug: str, piece_id: str, platform: str) -> Path:
+    return renditions_dir(data_root, slug, piece_id) / f"{platform}.yml"
 
 
 def posted_yaml_path(data_root: Path) -> Path:
@@ -279,6 +287,14 @@ def find_piece(data_root: Path, piece_id: str) -> tuple[Project, Piece] | None:
             f"{', '.join(p.slug for p, _ in matches)}"
         )
     return matches[0] if matches else None
+
+
+def read_rendition(data_root: Path, slug: str, piece_id: str, platform: str) -> Rendition:
+    return _load_model(Rendition, rendition_yaml_path(data_root, slug, piece_id, platform))
+
+
+def write_rendition(data_root: Path, slug: str, piece_id: str, rendition: Rendition) -> None:
+    _dump_model(rendition, rendition_yaml_path(data_root, slug, piece_id, rendition.platform.value))
 
 
 def generate_piece_id(data_root: Path, slug: str) -> str:

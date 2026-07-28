@@ -1,0 +1,19 @@
+# YouTube -- TDD §11's registry gives only "Title <=60, desc hook 150,
+# chapters from 00:00", no full config example (unlike linkedin.yml). The
+# title/chapter rules are hardcoded constants in produce/renditions.py
+# (§10.6 states them as fixed numbers, not config), not represented here;
+# `hook_chars` below is the one number this file *does* drive: the
+# "description's first N chars must contain the canonical URL" check reuses
+# it directly, same field LinkedIn's hook check uses for the opposite
+# assertion (no URL in the hook). See STATUS.md's deviations log.
+name: youtube
+max_chars: 5000                     # YouTube's documented description length cap
+hook_chars: 150                     # "description first 150 chars contain the URL" (TDD §11)
+links_in_body: true                 # the canonical URL is required, not forbidden, in the description
+supports_markdown: false
+allow_unicode_styling: true         # emoji in titles/descriptions is normal YouTube register
+line_break_style: single
+assets:
+  image: {w: 1280, h: 720, formats: [png, jpg]}   # thumbnail dims (matches WP-11's thumbnail.py output)
+extras:
+  - chapters

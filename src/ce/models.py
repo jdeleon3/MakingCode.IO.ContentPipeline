@@ -292,3 +292,27 @@ class PostRecord(BaseModel):
     url: str
     posted_at: datetime
     metrics: list[MetricSnapshot] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Rendition (data/projects/<slug>/pieces/<id>/renditions/<platform>.yml)
+#
+# No schema is given anywhere in TDD 5.2 for this entity -- piece.yml's own
+# example has no `renditions` key, and TDD 5.4/§7 only names the file paths
+# (`renditions/{linkedin,facebook,youtube}.yml`), not their shape. Invented
+# this session, same as WP-09's `grades.json`. `title`/`chapters` are
+# YouTube-only (its rendition is structurally different: a title + a
+# chapter list, not just a body); left unset for LinkedIn/Facebook rather
+# than splitting into three separate per-platform models, since one shared
+# shape is simpler for `ce package` (WP-13) to iterate over uniformly.
+# ---------------------------------------------------------------------------
+
+
+class Rendition(BaseModel):
+    platform: PostPlatform
+    body: str
+    first_comment: str | None = None  # LinkedIn only: separate UTM'd-URL comment
+    title: str | None = None  # YouTube only
+    chapters: list[str] = Field(default_factory=list)  # YouTube only, "MM:SS Label" lines
+    prompt_version: int
+    generated_at: datetime

@@ -1,0 +1,15 @@
+# Facebook -- TDD §11's registry gives only a one-line note ("Links OK;
+# native image"), no numbers (unlike linkedin.yml, which TDD 8 spells out
+# verbatim). Values below are this session's own choice -- see STATUS.md's
+# deviations log.
+name: facebook
+max_chars: 63206                    # Facebook's documented hard post-length cap
+hook_chars: 477                     # roughly where FB folds behind "See more" (informational --
+                                     # §10.6 only mechanically checks hook_chars for LinkedIn)
+links_in_body: true                 # "Links OK" -- no first_comment needed, unlike LinkedIn
+supports_markdown: false            # FB shows markdown syntax literally, doesn't render it
+allow_unicode_styling: true         # emoji/unicode styling is normal register for FB posts
+line_break_style: single
+assets:
+  image: {w: 1200, h: 630, formats: [png, jpg]}   # standard OG/link-preview image ratio
+extras: []

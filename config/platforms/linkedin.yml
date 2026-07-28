@@ -1,0 +1,13 @@
+# LinkedIn (TDD 8's literal example, reused verbatim -- this is the one
+# platform the TDD actually specifies numbers for).
+name: linkedin
+max_chars: 3000
+hook_chars: 200                     # must land above "see more"
+links_in_body: false                # -> first comment (v2 §5)
+supports_markdown: false
+allow_unicode_styling: false        # accessibility
+line_break_style: double
+assets:
+  image: {w: 1200, h: 1200, formats: [png]}
+extras:
+  - first_comment                   # required when a link exists

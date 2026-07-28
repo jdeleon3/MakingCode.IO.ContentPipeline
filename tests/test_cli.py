@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("render",): "WP-12",
     ("package",): "WP-13",
     ("publish", "site"): "WP-14",
     ("posted",): "WP-15",
@@ -90,7 +89,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("render",): ["pc-0001"],
         ("package",): ["pc-0001"],
         ("publish", "site"): ["pc-0001"],
         ("posted",): ["pc-0001", "--platform", "linkedin", "--url", "https://x.test/1"],
@@ -1116,6 +1114,87 @@ def test_assets_only_diagram_end_to_end(tmp_path, monkeypatch):
 
     assert result.exit_code == Exit.OK, result.output
     assert (store.piece_dir(data_root, "test-proj", "pc-0001") / "assets" / "flow.png").exists()
+
+
+# --- render (WP-12, TDD 12 "Done when") --------------------------------------
+
+
+def test_render_is_wired_not_a_stub(tmp_path, monkeypatch):
+    """`ce render` used to raise `NotImplementedYet("render", "WP-12")`; now
+    it should reach real logic (and fail on an unknown piece, not on "not
+    implemented yet")."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["render", "pc-9999"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert isinstance(result.exception, CEError)
+
+
+def test_render_linkedin_end_to_end(tmp_path, monkeypatch):
+    """Wires `ce render --platform linkedin` through the real CLI command,
+    with the Anthropic client faked. Mechanical-validation edge cases
+    (over-length, URL leaking into the body, markdown surviving, etc.) are
+    covered directly against `produce/renditions.py` in
+    test_produce_renditions.py -- this only proves the CLI plumbing:
+    config loading, the canonical/UTM URL, and the written renditions/*.yml.
+    """
+    import shutil
+    from datetime import UTC, date, datetime
+
+    from ce import store
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+    from ce.models import Piece, Project
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+    (tmp_path / "config" / "platforms").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        Path(__file__).parent.parent / "config" / "platforms" / "linkedin.yml",
+        tmp_path / "config" / "platforms" / "linkedin.yml",
+    )
+    # Gateway resolves prompts/ relative to cwd (like data/ and config/) --
+    # give this isolated tmp_path its own copy, same as the verify/assets
+    # end-to-end tests.
+    shutil.copytree(Path(__file__).parent.parent / "prompts", tmp_path / "prompts")
+
+    data_root = tmp_path / "data"
+    store.write_project(
+        data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
+    )
+    store.write_piece(
+        data_root,
+        "test-proj",
+        Piece(
+            id="pc-0001",
+            brief_id="br-01",
+            project="test-proj",
+            slug="a-piece",
+            created_at=datetime.now(UTC),
+            article_path=Path("article.md"),
+        ),
+    )
+    (store.piece_dir(data_root, "test-proj", "pc-0001") / "article.md").write_text(
+        "# A piece\n\nSome article body.", encoding="utf-8"
+    )
+
+    body = "A" * 50 + "."  # ends on a sentence boundary within hook_chars=200, no URL
+    utm_url = "https://example.com/blog/a-piece?utm_source=linkedin&utm_medium=social&utm_campaign=a-piece"
+    linkedin_content = f"{body}\n---\nLink in the comments: {utm_url}"
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content=linkedin_content, in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(cli.app, ["render", "pc-0001", "--platform", "linkedin"])
+
+    assert result.exit_code == Exit.OK, result.output
+    rendition = store.read_rendition(data_root, "test-proj", "pc-0001", "linkedin")
+    assert rendition.body == body
+    assert utm_url in rendition.first_comment
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------
