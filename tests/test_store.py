@@ -78,6 +78,62 @@ def test_read_missing_project_is_a_readable_error(tmp_path):
         store.read_project(tmp_path, "does-not-exist")
 
 
+def test_project_exists_true_after_write(tmp_path):
+    project = _sample_project()
+    assert store.project_exists(tmp_path, project.slug) is False
+    store.write_project(tmp_path, project)
+    assert store.project_exists(tmp_path, project.slug) is True
+
+
+def test_list_projects_on_empty_data_root_is_empty(tmp_path):
+    assert store.list_projects(tmp_path) == []
+
+
+def test_list_projects_returns_every_written_project(tmp_path):
+    one = _sample_project("proj-one")
+    two = _sample_project("proj-two")
+    store.write_project(tmp_path, one)
+    store.write_project(tmp_path, two)
+
+    listed = store.list_projects(tmp_path)
+    assert {p.slug for p in listed} == {"proj-one", "proj-two"}
+
+
+# --- Project tree scaffolding (WP-03) -----------------------------------------
+
+
+def test_scaffold_project_tree_creates_capture_and_stage_dirs(tmp_path):
+    store.scaffold_project_tree(tmp_path, "some-slug")
+    base = tmp_path / "projects" / "some-slug"
+
+    for sub in (
+        "captures/audio/raw",
+        "captures/audio/transcript",
+        "captures/screens",
+        "captures/screencast",
+        "harvest",
+        "pieces",
+    ):
+        assert (base / sub).is_dir(), f"missing {sub}"
+
+
+def test_scaffold_project_tree_creates_friction_log(tmp_path):
+    store.scaffold_project_tree(tmp_path, "some-slug")
+    friction = tmp_path / "projects" / "some-slug" / "captures" / "friction.md"
+    assert friction.exists()
+    assert friction.read_text(encoding="utf-8")
+
+
+def test_scaffold_project_tree_does_not_clobber_existing_friction_log(tmp_path):
+    store.scaffold_project_tree(tmp_path, "some-slug")
+    friction = tmp_path / "projects" / "some-slug" / "captures" / "friction.md"
+    friction.write_text("existing notes\n", encoding="utf-8")
+
+    store.scaffold_project_tree(tmp_path, "some-slug")
+
+    assert friction.read_text(encoding="utf-8") == "existing notes\n"
+
+
 # --- Capture ------------------------------------------------------------------
 
 

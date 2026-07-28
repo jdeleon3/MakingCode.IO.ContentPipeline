@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-02
+**Last session:** 2026-07-27 — completed WP-03
 
 ---
 
@@ -25,8 +25,8 @@
 | WP-00 | Scaffold, CLI skeleton, doctor | ✅ done | 62 tests passing |
 | WP-01 | Config, models, store | ✅ done | 100 tests passing (38 new) |
 | WP-02 | LLM gateway | ✅ done | 131 tests passing (31 new); `ANTHROPIC_API_KEY` now required in `doctor.py` |
-| WP-03 | Project lifecycle | 🔵 **next** | |
-| WP-04 | Capture & transcription | ⬜ | flip `ffmpeg`, `OPENAI_API_KEY` to required |
+| WP-03 | Project lifecycle | ✅ done | 155 tests passing (24 new) |
+| WP-04 | Capture & transcription | 🔵 **next** | flip `ffmpeg`, `OPENAI_API_KEY` to required |
 | WP-05 | Git harvest & safety gates ⚠️ | ⬜ | flip `gitleaks` to required. Planted-secret test is mandatory. |
 | WP-06 | Index & dedupe | ⬜ | |
 | WP-07 | External research | ⬜ | |
@@ -45,6 +45,27 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-03 · `ce project new --repo` validates against `config.repos.allowed`
+  at creation time, ahead of G1.** TDD 6.1 scopes G1 (the repo allowlist
+  gate) as running "before any git access" — i.e. at harvest time, and it's
+  implemented in WP-05's `gates/allowlist.py`, not this WP. WP-03's Build
+  line only says "Slug validation. Directory scaffolding." Added an early,
+  fail-fast check in `project._resolve_repo()` anyway: creating a project
+  that references a repo not in the allowlist is a config typo that should
+  surface immediately, not weeks later at `ce harvest`. This is *not* G1 —
+  no gate module, no bypass semantics, just a plain `CEError` — and doesn't
+  replace the real G1 check WP-05 still needs to build.
+
+- **WP-03 · media backup location wasn't decided as part of the code
+  changes.** Environment notes below had carried "decide in WP-03" since
+  WP-00, but WP-03's actual TDD Build/Done-when lines never mention it —
+  only `captures/audio/{raw,transcript}/` directories need to exist, which
+  `store.scaffold_project_tree` now does; there is no `engine.yml` field or
+  CLI command for a backup path, so this was always a documentation
+  decision, not a build one. Resolved conversationally later in the same
+  session: Google Drive, `My Drive/makingCodeIO/content` — see Environment
+  notes.
 
 - **WP-02 · `gateway.complete()` is a method on a `Gateway` class, not the bare
   function TDD 10.1 pseudocode shows.** Every other module (`store.py`,
@@ -126,15 +147,17 @@
 ## Environment notes
 
 - **Host:** Windows. `.gitattributes` normalises line endings to LF in the repo.
-- **Media backup target:** _TODO — decide in WP-03._ `data/` is committed to git
-  except `.llm-cache/`, `index.db`, `runs/`, and media (see `.gitignore`).
-  Audio and video are large and regenerable-never; they need a home outside git.
+- **Media backup target:** Google Drive, `My Drive/makingCodeIO/content`
+  (decided 2026-07-27) — off-machine redundancy for audio/video that would
+  otherwise live only on this machine. `ce capture` writes to local disk as
+  normal (`data/projects/<slug>/captures/...`, gitignored); this Drive
+  folder is where those files get copied/synced afterward, not a live
+  capture target. `data/` itself is committed to git except `.llm-cache/`,
+  `index.db`, `runs/`, and media (see `.gitignore`).
 - **API keys:** environment variables only, never `engine.yml` (TDD §14).
 
 ---
 
 ## Open questions
 
-- Media backup location (blocks nothing until WP-04 produces real audio).
-- `config/brand-brief.md` must be hand-written before WP-08. Template drafted;
-  not yet filled in.
+None currently open.

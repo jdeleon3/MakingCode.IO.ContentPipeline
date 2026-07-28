@@ -87,7 +87,10 @@ def project_new(
     ),
 ) -> None:
     """Create a project and scaffold its data directory."""
-    raise NotImplementedYet("project new", "WP-03")
+    from ce import project as lifecycle
+
+    created = lifecycle.create(Path("data"), slug, title=title, repo_paths=repo)
+    console.success(f"created project {created.slug}")
 
 
 @project_app.command("list")
@@ -95,13 +98,23 @@ def project_list(
     status: str | None = typer.Option(None, "--status", help="active|harvested|complete|abandoned"),
 ) -> None:
     """List projects."""
-    raise NotImplementedYet("project list", "WP-03")
+    from ce import project as lifecycle
+
+    projects = lifecycle.list_all(Path("data"), status)
+    if not projects:
+        console.out("(no projects)")
+        return
+    width = max(len(p.slug) for p in projects)
+    for p in projects:
+        console.out(f"  {p.slug.ljust(width)}  {p.status.value:<10}  {p.title}")
 
 
 @project_app.command("show")
 def project_show(slug: str = typer.Argument(...)) -> None:
     """Show a project, its captures and its briefs."""
-    raise NotImplementedYet("project show", "WP-03")
+    from ce import store
+
+    console.out(store.read_project_summary(Path("data"), slug))
 
 
 @project_app.command("close")
@@ -112,7 +125,10 @@ def project_close(
     ),
 ) -> None:
     """Mark a project finished."""
-    raise NotImplementedYet("project close", "WP-03")
+    from ce import project as lifecycle
+
+    closed = lifecycle.close(Path("data"), slug, abandoned=abandoned)
+    console.success(f"closed project {closed.slug} ({closed.status.value})")
 
 
 # ---------------------------------------------------------------------------

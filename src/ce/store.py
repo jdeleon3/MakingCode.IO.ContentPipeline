@@ -122,6 +122,40 @@ def write_project(data_root: Path, project: Project) -> None:
     _dump_model(project, project_yaml_path(data_root, project.slug))
 
 
+def project_exists(data_root: Path, slug: str) -> bool:
+    return project_yaml_path(data_root, slug).exists()
+
+
+def list_projects(data_root: Path) -> list[Project]:
+    root = data_root / "projects"
+    if not root.exists():
+        return []
+    slugs = [p.parent.name for p in root.glob("*/project.yml")]
+    return [read_project(data_root, slug) for slug in slugs]
+
+
+def scaffold_project_tree(data_root: Path, slug: str) -> None:
+    """Create the directories a fresh project needs (TDD §7) — `project.yml`
+    itself is written separately via `write_project`. `harvest/` and
+    `pieces/` start empty; their contents are written by later WPs (harvest,
+    produce) once there is something to put there.
+    """
+    base = project_dir(data_root, slug)
+    for sub in (
+        "captures/audio/raw",
+        "captures/audio/transcript",
+        "captures/screens",
+        "captures/screencast",
+        "harvest",
+        "pieces",
+    ):
+        (base / sub).mkdir(parents=True, exist_ok=True)
+
+    friction = base / "captures" / "friction.md"
+    if not friction.exists():
+        friction.write_text("# Friction log\n\n", encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Capture — one file per capture under captures/, named `<id>.capture.yml`
 # ---------------------------------------------------------------------------

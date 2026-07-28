@@ -13,8 +13,10 @@ from the system entirely.
 
 ## Status
 
-**WP-00 complete.** The CLI contract is fully registered; `ce doctor` works.
-Every other command is a stub that names the work package implementing it.
+**WP-03 complete.** Config/models/filesystem store, the LLM gateway (`ce
+cost`), and full project lifecycle (`ce project new|list|show|close`) are
+built and tested. Every command after that is a stub that names the work
+package implementing it.
 
 See [`STATUS.md`](STATUS.md) for progress and the next work package.
 
@@ -29,13 +31,16 @@ py -3.11 -m venv .venv
 
 pip install -e ".[dev]"
 
+setx ANTHROPIC_API_KEY sk-ant-...   # required — open a new terminal after
+
 ce doctor          # verify the environment
 ce --help          # the full command contract
-pytest             # 62 tests
+pytest             # full test suite
 ```
 
 `ce doctor` reports a △ for dependencies that later work packages need. Those
-are informational — it only exits non-zero on something required *now*. Use
+are informational — it only exits non-zero on something required *now*.
+`ANTHROPIC_API_KEY` is the one secret required from WP-02 onward. Use
 `ce doctor --strict` to see the full future requirement set.
 
 ---
@@ -105,7 +110,7 @@ tests/
 | [`docs/DIY-Content-Engine-v3-Spec.md`](docs/DIY-Content-Engine-v3-Spec.md) | Product rationale — why the pipeline is shaped this way |
 | [`docs/DIY-Content-Engine-v2.md`](docs/DIY-Content-Engine-v2.md) | Per-platform manual-posting gotchas |
 | [`docs/DIY-Content-Engine-v2.1-Ingest.md`](docs/DIY-Content-Engine-v2.1-Ingest.md) | Transcription and git-extraction detail |
-| [`config/brand-brief.md`](config/brand-brief.md) | Fill this in by hand before WP-08 |
+| [`config/brand-brief.md`](config/brand-brief.md) | Hand-written brand voice/standing/rules — required by WP-08 |
 
 ---
 

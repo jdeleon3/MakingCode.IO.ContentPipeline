@@ -39,7 +39,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("project", "new"): "WP-03",
     ("capture", "audio"): "WP-04",
     ("harvest",): "WP-08",
     ("brief", "select"): "WP-09",
@@ -96,7 +95,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("project", "new"): ["some-slug"],
         ("capture", "audio"): ["fake.m4a"],
         ("harvest",): ["some-slug"],
         ("brief", "select"): ["br-01"],
@@ -150,6 +148,134 @@ def test_cost_prints_per_prompt_breakdown(tmp_path, monkeypatch):
     assert result.exit_code == Exit.OK
     assert "_wp02_echo" in result.output
     assert "1 calls" in result.output
+
+
+# --- project lifecycle (WP-03, TDD 12 "Done when") --------------------------
+
+
+def test_project_new_creates_the_full_tree(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["project", "new", "test-proj"])
+    assert result.exit_code == Exit.OK, result.output
+
+    base = tmp_path / "data" / "projects" / "test-proj"
+    assert (base / "project.yml").exists()
+    assert (base / "captures" / "audio" / "raw").is_dir()
+    assert (base / "captures" / "audio" / "transcript").is_dir()
+    assert (base / "captures" / "screens").is_dir()
+    assert (base / "captures" / "screencast").is_dir()
+    assert (base / "captures" / "friction.md").exists()
+    assert (base / "harvest").is_dir()
+    assert (base / "pieces").is_dir()
+
+
+def test_project_new_with_allowlisted_repo(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "code" / "x"
+    repo_dir.mkdir(parents=True)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "engine.yml").write_text(
+        f"""
+identity:
+  name: John
+  site_url: https://example.com
+  site_repo: ~/code/site
+  timezone: America/New_York
+repos:
+  allowed:
+    - name: x
+      path: {repo_dir}
+      publishable: full
+llm:
+  provider: anthropic
+  models: {{reasoning: claude-opus-5, default: claude-sonnet-5, cheap: claude-haiku-4-5}}
+  budget: {{monthly_usd: 20, per_run_usd: 2.0, on_exceed: halt}}
+  retry: {{max_attempts: 4, backoff_base_sec: 2}}
+transcription:
+  provider: openai
+  model: gpt-4o-mini-transcribe
+  vocabulary: []
+  preprocess: {{silence_threshold_db: -40, silence_min_sec: 1.5, loudnorm: true}}
+embeddings: {{provider: openai, model: text-embedding-3-small}}
+gates:
+  allowlist: hard_fail
+  secrets: hard_fail
+  dedupe: {{threshold: 0.88, scope_days: 365}}
+  claims: {{enabled: true, block_on_unverifiable: true}}
+produce:
+  min_grade: 8.0
+  max_attempts: 3
+  grade_weights: {{hook: 0.3, evidence: 0.3, specificity: 0.2, voice: 0.1, cta: 0.1}}
+harvest:
+  git: {{lookback_days: 60, min_significance: 2}}
+  research: {{max_sources: 8}}
+  inventory: {{min_briefs: 6, max_briefs: 8}}
+utm:
+  template: "?utm_source={{platform}}&utm_medium=social&utm_campaign={{slug}}"
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli.app, ["project", "new", "test-proj", "--repo", str(repo_dir)])
+    assert result.exit_code == Exit.OK, result.output
+
+
+def test_project_new_duplicate_slug_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    first = runner.invoke(cli.app, ["project", "new", "test-proj"])
+    assert first.exit_code == Exit.OK
+
+    second = runner.invoke(cli.app, ["project", "new", "test-proj"])
+    assert second.exit_code != Exit.OK
+    assert isinstance(second.exception, CEError)
+    assert "already exists" in second.exception.message
+
+
+def test_project_close_nonexistent_project_is_a_readable_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["project", "close", "does-not-exist"])
+    assert result.exit_code != Exit.OK
+    assert isinstance(result.exception, CEError)
+
+
+def test_project_close_abandoned_sets_status(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    result = runner.invoke(cli.app, ["project", "close", "test-proj", "--abandoned"])
+    assert result.exit_code == Exit.OK, result.output
+    assert "abandoned" in result.output.lower()
+
+    from ce import store
+
+    reloaded = store.read_project(tmp_path / "data", "test-proj")
+    assert reloaded.status.value == "abandoned"
+
+
+def test_project_close_without_abandoned_sets_complete(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    result = runner.invoke(cli.app, ["project", "close", "test-proj"])
+    assert result.exit_code == Exit.OK, result.output
+
+    from ce import store
+
+    reloaded = store.read_project(tmp_path / "data", "test-proj")
+    assert reloaded.status.value == "complete"
+
+
+def test_project_list_and_show(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj", "--title", "Test Project"])
+
+    listed = runner.invoke(cli.app, ["project", "list"])
+    assert listed.exit_code == Exit.OK
+    assert "test-proj" in listed.output
+
+    shown = runner.invoke(cli.app, ["project", "show", "test-proj"])
+    assert shown.exit_code == Exit.OK
+    assert "Test Project" in shown.output
 
 
 # --- exit code contract (TDD 9) --------------------------------------------
