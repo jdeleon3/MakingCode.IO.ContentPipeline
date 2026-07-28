@@ -154,6 +154,20 @@ class UtmConfig(BaseModel):
     template: str
 
 
+class UmamiConfig(BaseModel):
+    # No TDD schema exists for this at all (WP-15's Build line names
+    # `metrics/umami.py` but §8 never lists an `analytics` section) --
+    # `UMAMI_API_KEY` is the actual secret (environment-only, TDD §14);
+    # these two are non-secret operational config, same split every other
+    # provider section in this file already makes.
+    api_url: str
+    website_id: str
+
+
+class AnalyticsConfig(BaseModel):
+    umami: UmamiConfig
+
+
 class EngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -166,6 +180,7 @@ class EngineConfig(BaseModel):
     produce: ProduceConfig
     harvest: HarvestConfig
     utm: UtmConfig
+    analytics: AnalyticsConfig
 
 
 def load_engine_config(path: Path | None = None) -> EngineConfig:

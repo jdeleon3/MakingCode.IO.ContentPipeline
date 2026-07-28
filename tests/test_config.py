@@ -71,6 +71,9 @@ def _valid_engine_dict(**overrides) -> dict:
             "inventory": {"min_briefs": 6, "max_briefs": 8},
         },
         "utm": {"template": "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"},
+        "analytics": {
+            "umami": {"api_url": "https://umami.example.com", "website_id": "site-1"},
+        },
     }
     data.update(overrides)
     return data

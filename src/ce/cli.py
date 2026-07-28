@@ -739,15 +739,64 @@ def posted(
     url: str = typer.Option(..., "--url", help="URL of the live post."),
 ) -> None:
     """Record a manual post. Generated for you by REVIEW.html."""
-    raise NotImplementedYet("posted", "WP-15")
+    from datetime import UTC, datetime
+
+    from ce import store
+    from ce.models import PostPlatform, PostRecord
+
+    data_root = Path("data")
+    found = store.find_piece(data_root, piece_id)
+    if found is None:
+        raise CEError(f"piece {piece_id!r} not found")
+
+    try:
+        platform_enum = PostPlatform(platform)
+    except ValueError as exc:
+        valid = ", ".join(p.value for p in PostPlatform)
+        raise CEError(f"unknown platform {platform!r}, expected one of: {valid}") from exc
+
+    records = store.read_posted(data_root)
+    records.append(
+        PostRecord(
+            piece_id=piece_id,
+            platform=platform_enum,
+            url=url,
+            posted_at=datetime.now(UTC),
+        )
+    )
+    store.write_posted(data_root, records)
+
+    console.success(f"recorded {piece_id} posted to {platform_enum.value}: {url}")
 
 
 @metrics_app.command("pull")
 def metrics_pull(
     since: str | None = typer.Option(None, "--since", help="YYYY-MM-DD"),
 ) -> None:
-    """Fetch site, YouTube and Facebook metrics into posted.yml."""
-    raise NotImplementedYet("metrics pull", "WP-15")
+    """Refresh UTM site clicks (every platform) and YouTube stats in posted.yml."""
+    from datetime import date
+
+    from ce.config import load_engine_config
+    from ce.metrics import pull as pull_module
+    from ce.metrics.umami import HttpxUmamiClient
+    from ce.metrics.youtube import YouTubeDataApiClient
+
+    config = load_engine_config()
+    since_date = date.fromisoformat(since) if since else None
+    data_root = Path("data")
+
+    records = pull_module.pull(
+        data_root,
+        config,
+        umami_client=HttpxUmamiClient(
+            api_url=config.analytics.umami.api_url,
+            website_id=config.analytics.umami.website_id,
+        ),
+        youtube_client=YouTubeDataApiClient(),
+        since=since_date,
+    )
+
+    console.success(f"pulled metrics for {len(records)} post(s) -> {data_root / 'performance.md'}")
 
 
 # ---------------------------------------------------------------------------

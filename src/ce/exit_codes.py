@@ -176,6 +176,15 @@ class PublishError(CEError):
     exit_code = Exit.ERROR
 
 
+class MetricsError(CEError):
+    """`metrics/*` (TDD 12 WP-15) failed: an unreachable Umami instance, a
+    missing `UMAMI_API_KEY`/`YOUTUBE_API_KEY`, an unparsable YouTube video
+    URL, or a `posted.yml` entry naming a piece that no longer exists.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

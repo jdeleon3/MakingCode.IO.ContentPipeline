@@ -73,6 +73,9 @@ def _base_engine_config_dict() -> dict[str, Any]:
             "inventory": {"min_briefs": 6, "max_briefs": 8},
         },
         "utm": {"template": "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"},
+        "analytics": {
+            "umami": {"api_url": "https://umami.example.com", "website_id": "site-1"},
+        },
     }
 
 

@@ -82,3 +82,9 @@ harvest:
 
 utm:
   template: "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"
+
+analytics: # EDIT THIS — self-hosted Umami instance tracking identity.site_url.
+  # UMAMI_API_KEY is the actual secret (environment variable, never here).
+  umami:
+    api_url: https://umami.example.com
+    website_id: 00000000-0000-0000-0000-000000000000

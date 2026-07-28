@@ -41,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("posted",): "WP-15",
     ("sweep",): "WP-16",
 }
 
@@ -86,9 +85,7 @@ def test_stub_names_its_work_package(command, wp):
 
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
-    required = {
-        ("posted",): ["pc-0001", "--platform", "linkedin", "--url", "https://x.test/1"],
-    }
+    required = {}
     return required.get(command, [])
 
 
@@ -195,6 +192,8 @@ harvest:
   inventory: {{min_briefs: 6, max_briefs: 8}}
 utm:
   template: "?utm_source={{platform}}&utm_medium=social&utm_campaign={{slug}}"
+analytics:
+  umami: {{api_url: "https://umami.example.com", website_id: "site-1"}}
 """,
         encoding="utf-8",
     )
@@ -297,6 +296,8 @@ harvest:
   inventory: {min_briefs: 6, max_briefs: 8}
 utm:
   template: "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"
+analytics:
+  umami: {api_url: "https://umami.example.com", website_id: "site-1"}
 """
 
 
@@ -1462,6 +1463,99 @@ def test_publish_site_blocks_an_unedited_article_with_exit_4(tmp_path, monkeypat
 
     assert isinstance(result.exception, PreconditionUnmet)
     assert result.exception.exit_code == Exit.PRECONDITION
+
+
+# --- posted / metrics pull (WP-15, TDD 12 "Done when") -----------------------
+#
+# Module-level coverage of the actual metrics logic (UTM click resolution,
+# LinkedIn manual-entry-only, per-date idempotency) lives in
+# tests/test_metrics_pull.py, same split WP-14 used for publish/site.py.
+# These wire the real CLI commands and cover `ce posted`'s pure store I/O
+# end to end (no external network involved, unlike `metrics pull`).
+
+
+def test_posted_appends_to_posted_yml(tmp_path, monkeypatch):
+    from ce import store
+
+    monkeypatch.chdir(tmp_path)
+    _write_publishable_piece(tmp_path, generated_at=None)
+
+    result = runner.invoke(
+        cli.app,
+        ["posted", "pc-0001", "--platform", "linkedin", "--url", "https://linkedin.test/posts/1"],
+    )
+
+    assert result.exit_code == Exit.OK, result.output
+    records = store.read_posted(tmp_path / "data")
+    assert len(records) == 1
+    assert records[0].piece_id == "pc-0001"
+    assert records[0].platform.value == "linkedin"
+    assert records[0].url == "https://linkedin.test/posts/1"
+
+
+def test_posted_a_second_post_does_not_clobber_the_first(tmp_path, monkeypatch):
+    from ce import store
+
+    monkeypatch.chdir(tmp_path)
+    _write_publishable_piece(tmp_path, generated_at=None)
+
+    runner.invoke(
+        cli.app,
+        ["posted", "pc-0001", "--platform", "linkedin", "--url", "https://linkedin.test/posts/1"],
+    )
+    result = runner.invoke(
+        cli.app,
+        ["posted", "pc-0001", "--platform", "youtube", "--url", "https://youtu.be/dQw4w9WgXcQ"],
+    )
+
+    assert result.exit_code == Exit.OK, result.output
+    records = store.read_posted(tmp_path / "data")
+    assert len(records) == 2
+    assert {r.platform.value for r in records} == {"linkedin", "youtube"}
+
+
+def test_posted_unknown_piece_is_a_readable_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        cli.app, ["posted", "pc-9999", "--platform", "linkedin", "--url", "https://x.test/1"]
+    )
+
+    assert isinstance(result.exception, CEError)
+    assert not isinstance(result.exception, NotImplementedYet)
+
+
+def test_posted_rejects_an_unknown_platform(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_publishable_piece(tmp_path, generated_at=None)
+
+    result = runner.invoke(
+        cli.app, ["posted", "pc-0001", "--platform", "tiktok", "--url", "https://x.test/1"]
+    )
+
+    assert isinstance(result.exception, CEError)
+    assert "tiktok" in str(result.exception)
+
+
+def test_metrics_pull_is_wired_not_a_stub(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+
+    result = runner.invoke(cli.app, ["metrics", "pull"])
+
+    assert not isinstance(result.exception, NotImplementedYet)
+    assert result.exit_code == Exit.OK, result.output
+
+
+def test_metrics_pull_with_no_posted_records_writes_performance_md(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
+
+    result = runner.invoke(cli.app, ["metrics", "pull"])
+
+    assert result.exit_code == Exit.OK, result.output
+    performance_md = (tmp_path / "data" / "performance.md").read_text(encoding="utf-8")
+    assert "No posts recorded yet" in performance_md
 
 
 # --- index rebuild (WP-06, TDD 12 "Done when") ------------------------------

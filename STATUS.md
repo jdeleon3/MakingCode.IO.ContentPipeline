@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-14
+**Last session:** 2026-07-28 — completed WP-15
 
 ---
 
@@ -37,14 +37,92 @@
 | WP-12 | Renditions | ✅ done | 379 tests passing (26 new) |
 | WP-13 | Packager & REVIEW.html | ✅ done | 394 tests passing (15 new); real Playwright/chromium acceptance test (browsers now installed on this machine) |
 | WP-14 | Site publish | ✅ done | 421 tests passing (27 new) |
-| WP-15 | Post-back & metrics | 🔵 **next** | |
-| WP-16 | Trend sweep | ⬜ | independent after WP-02 |
+| WP-15 | Post-back & metrics | ✅ done | 449 tests passing (28 new); `UMAMI_API_KEY`/`YOUTUBE_API_KEY` now required in `doctor.py` |
+| WP-16 | Trend sweep | 🔵 **next** | independent after WP-02 |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
 
 ---
 
 ## Deviations from the TDD
+
+- **WP-15 · no `§10.10` component spec exists anywhere in the TDD for this
+  WP** (§10 stops at 10.9 `publish/site.py`) — every design choice below is
+  this session's invention, not derived from a TDD section the way most
+  other WPs' Build lines could be. Confirmed by this session's
+  `wp-spec-conformance` review, which independently checked the TDD for a
+  missing §10.10 rather than trusting this note.
+
+- **WP-15 · a new `config.analytics.umami` section (`api_url`,
+  `website_id`) was added to `engine.yml`/`config.py`** — TDD §8's
+  reference config has no `analytics` key at all. `UMAMI_API_KEY` (the
+  actual secret) stays environment-only per TDD §14/ADR pattern; these two
+  fields are non-secret operational config, same split every other
+  provider section in `config.py` already makes.
+
+- **WP-15 · `metrics/umami.py` and `metrics/youtube.py` both use a plain
+  `httpx.get`, not an official SDK** — reversing the general "prefer the
+  official SDK" direction the 2026-07-28 cross-cutting deviation set for
+  Anthropic/OpenAI/Gemini/Perplexity. Umami has no official Python SDK at
+  all (self-hosted, single REST endpoint) — same shape as
+  `harvest/research.py`'s `DuckDuckGoSearchClient`, which scrapes a page
+  for the same reason. YouTube's Data API v3 does have an official SDK
+  (`google-api-python-client`), deliberately not added: it's a heavyweight,
+  discovery-document-based client meant for multi-endpoint/write use, and
+  this WP only ever makes one read-only `videos.list?part=statistics` call
+  — no retry/streaming/multi-endpoint surface for an SDK to actually earn
+  its keep on, the same "one GET doesn't need an SDK" reasoning WP-02
+  originally used for Anthropic before that call was reversed for a
+  different reason (a real retry bug an SDK's streaming call fixed
+  structurally — no equivalent bug exists here).
+
+- **WP-15 · Umami click attribution matches on path+query against the
+  piece's UTM'd URL, reusing `produce/renditions.py`'s existing
+  `canonical_url`/`utm_url` helpers rather than re-deriving the query
+  string a third time.** Assumes Umami's tracking script records the full
+  path+query (including `utm_*` params) as its per-URL `x` value, which is
+  its default behavior; not verified against a real Umami instance (this
+  dev environment has none) — see the next entry.
+
+- **WP-15 · `HttpxUmamiClient`/`YouTubeDataApiClient`'s real transport is
+  exercised only by monkeypatching `httpx.get` in tests, never a live
+  network call** — same shape as WP-04's ffmpeg/WP-05's gitleaks/WP-07's
+  original httpx-based research clients: this dev environment has neither
+  a live Umami instance nor a populated `YOUTUBE_API_KEY` to test against
+  for real. `ce doctor` reports both as pending until installed/set.
+
+- **WP-15 · LinkedIn *and* Facebook engagement metrics (`impressions`,
+  `reactions`, `comments`) are manual-entry-only — `metrics/pull.py` never
+  fetches or zeroes them for either platform, only ever refreshing
+  `site_clicks`.** TDD's Done-when line only names LinkedIn explicitly,
+  but the Build line lists no `metrics/facebook.py` module either, and
+  neither platform has a public API for a personal/page post's engagement
+  numbers without a partnered app review — out of reach per TDD §15's "API
+  publishing to social platforms: never" stance, which this session reads
+  as covering reads of that kind of data the same way it covers writes.
+  TDD 5.2's own `posted.yml` example (real LinkedIn impressions/reactions/
+  comments) is only explainable as a hand-edit, since no CLI command
+  anywhere accepts those numbers — `data/posted.yml` is committed to git
+  like everything else in `data/`, so hand-editing it is consistent with
+  how the rest of this system already treats its own data files.
+
+- **WP-15 · idempotent-per-snapshot-date is implemented as "drop any
+  existing `MetricSnapshot` with today's calendar date (UTC), then append
+  a fresh one"** rather than merging fields into the existing snapshot in
+  place. Simpler, and behaviorally identical for every field `pull` itself
+  computes (site_clicks always recomputed; YouTube's three fields always
+  recomputed from the live API; LinkedIn/Facebook's three fields always
+  carried forward from the prior snapshot) — there's no field a same-day
+  rerun would need to preserve that isn't already being explicitly
+  recomputed or carried forward by that same call.
+
+- **WP-15 · `performance.md` (`data/performance.md`, global, next to
+  `posted.yml`) is regenerated in full on every `ce metrics pull` run**,
+  same "content lives in git, the `.md` is what you actually read" split
+  as `harvest/inventory.md` (WP-08). Not itself named in the Done-when
+  line, only the Build line — same "build what the Build line asks for
+  even when Done-when doesn't re-test it" precedent as WP-11's hero-image
+  handling.
 
 - **WP-14 · `publish/site.py`'s frontmatter omits TDD 10.9's literal
   `canonical` key.** Inspected the real site repo this session
@@ -826,6 +904,13 @@
   (`mmdc`/`mmdc.cmd` resolve on PATH but the subprocess call fails with
   `WinError 2`) — a pre-existing WP-11 gap, out of WP-13's scope, not
   touched this session.
+- **`UMAMI_API_KEY`/`YOUTUBE_API_KEY` (WP-15):** neither is set on this
+  machine, and there's no self-hosted Umami instance to point
+  `config.analytics.umami.api_url` at yet — `ce doctor` now exits 1 here
+  until both are set/deployed. `ce metrics pull` and `HttpxUmamiClient`/
+  `YouTubeDataApiClient`'s real transport are untested against live
+  services as a result (tests fake both clients — see STATUS.md
+  deviations); functionally complete, just not yet exercised for real.
 
 ---
 

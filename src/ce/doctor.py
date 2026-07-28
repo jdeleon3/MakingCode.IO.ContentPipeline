@@ -17,6 +17,7 @@ The table below is the single place to do that.
            PERPLEXITY_API_KEY is a config-swappable alternative, never
            required, since duckduckgo/perplexity both remain valid choices)
     WP-11  mermaid-cli, playwright + chromium
+    WP-15  UMAMI_API_KEY, YOUTUBE_API_KEY (done)
 """
 
 from __future__ import annotations
@@ -205,6 +206,20 @@ CHECKS: list[Check] = [
         required=True,
         needed_for="WP-11",
         install="pip install playwright && playwright install chromium",
+    ),
+    Check(
+        name="UMAMI_API_KEY",
+        probe=_check_env("UMAMI_API_KEY"),
+        required=True,
+        needed_for="WP-15",
+        install="setx UMAMI_API_KEY ...  (self-hosted Umami instance, ce metrics pull)",
+    ),
+    Check(
+        name="YOUTUBE_API_KEY",
+        probe=_check_env("YOUTUBE_API_KEY"),
+        required=True,
+        needed_for="WP-15",
+        install="setx YOUTUBE_API_KEY ...  (YouTube Data API v3, ce metrics pull)",
     ),
 ]
 
