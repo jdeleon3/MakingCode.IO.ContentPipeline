@@ -98,6 +98,15 @@ class SchemaValidationError(CEError):
     exit_code = Exit.ERROR
 
 
+class CaptureError(CEError):
+    """A capture/transcription step failed (TDD 10.2): a missing binary, a
+    failed subprocess, an unreachable transcription API, or an unsupported
+    input file.
+    """
+
+    exit_code = Exit.ERROR
+
+
 class NotImplementedYet(CEError, NotImplementedError):
     """Command exists in the CLI contract but its work package is not built.
 

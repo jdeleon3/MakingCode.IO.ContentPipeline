@@ -11,7 +11,7 @@ WHEN YOU IMPLEMENT A WORK PACKAGE, flip its dependencies to required=True.
 The table below is the single place to do that.
 
     WP-02  ANTHROPIC_API_KEY (done)
-    WP-04  ffmpeg, OPENAI_API_KEY
+    WP-04  ffmpeg, OPENAI_API_KEY (done)
     WP-05  gitleaks
     WP-11  mermaid-cli, playwright + chromium
 """
@@ -164,14 +164,14 @@ CHECKS: list[Check] = [
     Check(
         name="OPENAI_API_KEY",
         probe=_check_env("OPENAI_API_KEY"),
-        required=False,
+        required=True,
         needed_for="WP-04",
         install="setx OPENAI_API_KEY sk-...  (transcription + embeddings)",
     ),
     Check(
         name="ffmpeg",
         probe=check_ffmpeg,
-        required=False,
+        required=True,
         needed_for="WP-04",
         install="winget install Gyan.FFmpeg   (or scoop install ffmpeg)",
     ),

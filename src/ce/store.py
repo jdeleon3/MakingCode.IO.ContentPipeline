@@ -180,6 +180,22 @@ def list_captures(data_root: Path, slug: str) -> list[Capture]:
     return [_load_model(Capture, p) for p in sorted(directory.glob("*.capture.yml"))]
 
 
+def generate_capture_id(data_root: Path, slug: str, captured_at: datetime) -> str:
+    """A human-readable, collision-safe capture id: `cap-YYYYMMDD-HHMMSS`,
+    with a `-N` suffix appended only if that id is already taken — multiple
+    captures ingested within the same second (bulk import, or several
+    `ce capture` calls back to back) would otherwise silently overwrite
+    each other's `.capture.yml` file.
+    """
+    base = f"cap-{captured_at:%Y%m%d-%H%M%S}"
+    candidate = base
+    suffix = 2
+    while capture_yaml_path(data_root, slug, candidate).exists():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Brief — array in harvest/briefs.yml
 # ---------------------------------------------------------------------------

@@ -15,6 +15,10 @@ outbox/
 *.mov
 *.mkv
 
+# ...except committed test fixtures (small, synthetic, needed for
+# deterministic tests — e.g. tests/fixtures/audio/self-correction-90s.wav).
+!tests/fixtures/**
+
 # Secrets
 .env
 .env.*

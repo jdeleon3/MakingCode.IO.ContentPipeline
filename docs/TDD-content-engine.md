@@ -737,12 +737,12 @@ def extract(project: Project, lookback_days: int) -> GitHarvest
 ```python
 SIGNIFICANCE = [
     (r"^(revert|fixup)", +3, "reversal"),
-    ("reverts_recent_commit_within_14d",    +3, "reversal"),
-    ("message_len > 100",                   +2, "explained"),
-    ("deletions > 100",                     +2, "large_deletion"),
-    ("touches_dependency_manifest",         +2, "tooling_change"),
-    ("fix_after_feature_gap_gt_2d",         +1, "war_story"),
-    ("touches docs/ or adr/",               +1, "written_thinking"),
+    ("reverts_recent_commit_within_14d", +3, "reversal"),
+    ("message_len > 100", +2, "explained"),
+    ("deletions > 100", +2, "large_deletion"),
+    ("touches_dependency_manifest", +2, "tooling_change"),
+    ("fix_after_feature_gap_gt_2d", +1, "war_story"),
+    ("touches docs/ or adr/", +1, "written_thinking"),
     (r"^(chore|style|typo|bump|wip|fmt|lint)", -5, "noise"),
 ]
 # keep if score >= config.harvest.git.min_significance

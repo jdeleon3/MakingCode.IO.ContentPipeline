@@ -2,7 +2,7 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-27 — completed WP-03
+**Last session:** 2026-07-28 — completed WP-04
 
 ---
 
@@ -26,8 +26,8 @@
 | WP-01 | Config, models, store | ✅ done | 100 tests passing (38 new) |
 | WP-02 | LLM gateway | ✅ done | 131 tests passing (31 new); `ANTHROPIC_API_KEY` now required in `doctor.py` |
 | WP-03 | Project lifecycle | ✅ done | 155 tests passing (24 new) |
-| WP-04 | Capture & transcription | 🔵 **next** | flip `ffmpeg`, `OPENAI_API_KEY` to required |
-| WP-05 | Git harvest & safety gates ⚠️ | ⬜ | flip `gitleaks` to required. Planted-secret test is mandatory. |
+| WP-04 | Capture & transcription | ✅ done | 188 tests passing (33 new); `ffmpeg`/`OPENAI_API_KEY` now required in `doctor.py` |
+| WP-05 | Git harvest & safety gates ⚠️ | 🔵 **next** | flip `gitleaks` to required. Planted-secret test is mandatory. |
 | WP-06 | Index & dedupe | ⬜ | |
 | WP-07 | External research | ⬜ | |
 | WP-08 | Inventory generator (MATCH) ⭐ | ⬜ | **MVP milestone** — usable system after this |
@@ -45,6 +45,85 @@
 ---
 
 ## Deviations from the TDD
+
+- **WP-04 · `ffmpeg`/OpenAI transcription reached through injectable
+  `Preprocessor`/`Splitter`/`TranscriptionClient` Protocols, tested via
+  fakes, real implementations exercised only manually.** Unlike WP-02's
+  equivalent choice for `AnthropicClient` (mostly a style preference),
+  this one isn't optional: this dev/build environment has no `ffmpeg`
+  binary at all (confirmed via `shutil.which`), so the automated suite
+  cannot invoke real ffmpeg regardless of preference. `ce doctor` now
+  requires `ffmpeg` + `OPENAI_API_KEY`; a machine that actually has ffmpeg
+  installed exercises `FfmpegPreprocessor`/`FfmpegSilenceSplitter`/
+  `OpenAITranscriptionClient` for real, but no CI/automated run does.
+
+- **WP-04 · the "90-second fixture m4a" is a synthesized WAV tone
+  (`tests/fixtures/audio/self-correction-90s.wav`), not a real m4a
+  recording.** Producing real M4A/AAC content needs either `ffmpeg` (not
+  available here) or an actual hand-recorded file (not obtainable
+  programmatically). The fixture is genuinely 90 seconds and a valid,
+  playable audio file (built with stdlib `wave`), so `ingest()`'s file
+  handling is exercised for real; the pipeline is format-agnostic (ffmpeg
+  accepts any container) so `.wav` vs `.m4a` doesn't affect correctness.
+  The "self-correction" itself is injected via a fake transcription
+  client's canned text, not extracted from real speech — see the next
+  entry for why that's still a meaningful test.
+
+- **WP-04 · the golden "clean.md retains a self-correction" test verifies
+  plumbing, not real ASR/LLM judgment.** No automated test can make a real
+  model produce or preserve a self-correction without a network call.
+  What's verified: the raw self-correction text a fake transcription
+  client returns (a) is written verbatim to `raw.txt`, (b) is passed
+  unmodified into the `transcript_clean` prompt as `raw_text`, and (c)
+  whatever the (fake) LLM returns lands verbatim in `clean.md`. Whether a
+  *real* transcription + a *real* model call actually preserves a
+  self-correction is a property of `prompts/transcript_clean.md` and the
+  real model, validated by using the real system, not by a unit test.
+
+- **WP-04 · `transcribe()` idempotency is a direct existing-output check,
+  not `store.py`'s `hash_inputs`/`_manifest.json` primitives.** Those are
+  one manifest per *directory*, but `captures/audio/transcript/` holds
+  outputs for every capture in a project — a shared manifest there would
+  collide across captures. Checking `capture.derived.transcript_raw` /
+  `transcript_clean` plus file existence is simpler and sufficient, since
+  a given capture's source audio never changes after ingest.
+
+- **WP-04 · `ce capture screen` classifies screenshot vs. screencast by
+  file extension.** TDD 5.2/§9 both name a single `capture screen <file>`
+  command covering both `screenshot` and `screencast` capture types but
+  never say how to tell them apart. Images (`.png/.jpg/.jpeg/.gif/.webp/
+  .bmp`) → screenshot, video (`.mp4/.mov/.webm/.mkv`) → screencast;
+  anything else is a readable `CaptureError`, not a silent misclassification.
+
+- **WP-04 · `ce capture friction` both appends to `friction.md` *and*
+  records a `Capture` (type=friction).** The CLI contract's own help text
+  only mentions the file append, but TDD 5.2's `capture.yml` schema lists
+  `friction` as one of the four capture types, and WP-04's Done-when line
+  requires `ce capture list` to show "all types" — which needs a `Capture`
+  record to list. `source_path` points at the shared `friction.md` file
+  (all friction notes for a project point at the same file); `context`
+  holds the note text.
+
+- **WP-04 · `--project` is a required option on `capture audio|screen|
+  friction`, not `Optional[str]` as WP-00 stubbed it.** There's no
+  "current project" concept anywhere in the TDD or this codebase to fall
+  back to, so an omitted `--project` had no sensible default behavior to
+  implement — required-with-a-clear-error beats a silent no-op or a guess.
+
+- **WP-04 · capture ids gained collision-safety
+  (`store.generate_capture_id`), not part of WP-01's original `Capture`
+  work.** The obvious `cap-YYYYMMDD-HHMMSS` scheme (matching the TDD 5.2
+  example) collides when two captures happen within the same second —
+  genuinely possible for rapid manual captures, and something WP-04's own
+  test suite hit immediately. Appends `-2`, `-3`, ... only when needed, so
+  the common case stays exactly the TDD's example format.
+
+- **WP-04 · only the OpenAI transcription provider is implemented;
+  `config.transcription.provider` is accepted but not dispatched on.**
+  Same shape as WP-02's Gateway never branching on `config.llm.provider` —
+  TDD 10.2 only ever describes one provider ("Transcribe: provider from
+  config" — but no second provider is specified anywhere), so there's
+  nothing to dispatch to yet.
 
 - **WP-03 · `ce project new --repo` validates against `config.repos.allowed`
   at creation time, ahead of G1.** TDD 6.1 scopes G1 (the repo allowlist

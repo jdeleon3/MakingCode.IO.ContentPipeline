@@ -153,6 +153,26 @@ def test_list_captures_on_untouched_project_is_empty(tmp_path):
     assert store.list_captures(tmp_path, "no-captures-yet") == []
 
 
+# --- Capture id generation (WP-04) --------------------------------------------
+
+
+def test_generate_capture_id_is_timestamp_based(tmp_path):
+    at = datetime(2026, 7, 16, 14, 23, 0, tzinfo=UTC)
+    assert store.generate_capture_id(tmp_path, "some-slug", at) == "cap-20260716-142300"
+
+
+def test_generate_capture_id_disambiguates_same_second_collisions(tmp_path):
+    project = _sample_project()
+    at = datetime(2026, 7, 16, 14, 23, 0, tzinfo=UTC)
+
+    first_id = store.generate_capture_id(tmp_path, project.slug, at)
+    store.write_capture(tmp_path, _sample_capture(project.slug, first_id))
+
+    second_id = store.generate_capture_id(tmp_path, project.slug, at)
+    assert second_id != first_id
+    assert second_id == "cap-20260716-142300-2"
+
+
 # --- Brief ----------------------------------------------------------------
 
 

@@ -139,37 +139,68 @@ def project_close(
 @capture_app.command("audio")
 def capture_audio(
     file: Path = typer.Argument(..., help="Audio file to ingest."),
-    project: str | None = typer.Option(None, "--project", "-p"),
+    project: str = typer.Option(..., "--project", "-p", help="Project slug."),
     moment: str = typer.Option("in_situ", "--moment", help="in_situ|retro"),
     context: str | None = typer.Option(None, "--context", help="One line: what was happening."),
 ) -> None:
     """Ingest and transcribe an audio capture."""
-    raise NotImplementedYet("capture audio", "WP-04")
+    from ce.capture import audio as audio_capture
+    from ce.config import load_engine_config
+    from ce.llm.gateway import Gateway
+    from ce.models import CaptureMoment
+
+    try:
+        moment_enum = CaptureMoment(moment)
+    except ValueError:
+        raise CEError(f"unknown --moment {moment!r}, expected in_situ|retro") from None
+
+    data_root = Path("data")
+    captured = audio_capture.ingest(data_root, file, project, moment=moment_enum, context=context)
+    config = load_engine_config()
+    gateway = Gateway(config, data_root=data_root)
+    transcribed = audio_capture.transcribe(data_root, captured, config, gateway=gateway)
+    console.success(f"captured and transcribed {transcribed.id}")
 
 
 @capture_app.command("screen")
 def capture_screen(
     file: Path = typer.Argument(...),
-    project: str | None = typer.Option(None, "--project", "-p"),
+    project: str = typer.Option(..., "--project", "-p", help="Project slug."),
     context: str | None = typer.Option(None, "--context"),
 ) -> None:
     """Ingest a screenshot or screencast."""
-    raise NotImplementedYet("capture screen", "WP-04")
+    from ce.capture import ingest as capture_ingest
+
+    captured = capture_ingest.ingest_screen(Path("data"), file, project, context=context)
+    console.success(f"captured {captured.id} ({captured.type.value})")
 
 
 @capture_app.command("friction")
 def capture_friction(
     note: str = typer.Argument(..., help="One line, written the moment something surprised you."),
-    project: str | None = typer.Option(None, "--project", "-p"),
+    project: str = typer.Option(..., "--project", "-p", help="Project slug."),
 ) -> None:
     """Append a timestamped line to friction.md."""
-    raise NotImplementedYet("capture friction", "WP-04")
+    from ce.capture import ingest as capture_ingest
+
+    captured = capture_ingest.append_friction(Path("data"), project, note)
+    console.success(f"logged friction note {captured.id}")
 
 
 @capture_app.command("list")
 def capture_list(project: str = typer.Argument(...)) -> None:
     """List captures for a project."""
-    raise NotImplementedYet("capture list", "WP-04")
+    from ce.capture import ingest as capture_ingest
+
+    captures = capture_ingest.list_captures(Path("data"), project)
+    if not captures:
+        console.out("(no captures)")
+        return
+    for c in captures:
+        line = f"  {c.id}  {c.type.value:<10}  {c.moment.value:<7}  {c.captured_at:%Y-%m-%d %H:%M}"
+        if c.context:
+            line += f"  — {c.context}"
+        console.out(line)
 
 
 # ---------------------------------------------------------------------------

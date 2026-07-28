@@ -1,5 +1,7 @@
 """WP-00 acceptance: the CLI contract from TDD 9 is complete and stubs are honest."""
 
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -39,7 +41,6 @@ EXPECTED_COMMANDS = [
 
 # Which work package implements each stub.
 EXPECTED_WP = {
-    ("capture", "audio"): "WP-04",
     ("harvest",): "WP-08",
     ("brief", "select"): "WP-09",
     ("produce",): "WP-09",
@@ -95,7 +96,6 @@ def test_stub_names_its_work_package(command, wp):
 def _dummy_args_for(command):
     """Minimum arguments to get past Typer parsing and reach the stub body."""
     required = {
-        ("capture", "audio"): ["fake.m4a"],
         ("harvest",): ["some-slug"],
         ("brief", "select"): ["br-01"],
         ("produce",): ["pc-0001"],
@@ -276,6 +276,157 @@ def test_project_list_and_show(tmp_path, monkeypatch):
     shown = runner.invoke(cli.app, ["project", "show", "test-proj"])
     assert shown.exit_code == Exit.OK
     assert "Test Project" in shown.output
+
+
+# --- capture (WP-04, TDD 12 "Done when") -------------------------------------
+
+_MINIMAL_ENGINE_YML = """
+identity:
+  name: John
+  site_url: https://example.com
+  site_repo: ~/code/site
+  timezone: America/New_York
+repos:
+  allowed: []
+llm:
+  provider: anthropic
+  models: {reasoning: claude-opus-5, default: claude-sonnet-5, cheap: claude-haiku-4-5}
+  budget: {monthly_usd: 20, per_run_usd: 2.0, on_exceed: halt}
+  retry: {max_attempts: 4, backoff_base_sec: 2}
+transcription:
+  provider: openai
+  model: gpt-4o-mini-transcribe
+  vocabulary: []
+  preprocess: {silence_threshold_db: -40, silence_min_sec: 1.5, loudnorm: true}
+embeddings: {provider: openai, model: text-embedding-3-small}
+gates:
+  allowlist: hard_fail
+  secrets: hard_fail
+  dedupe: {threshold: 0.88, scope_days: 365}
+  claims: {enabled: true, block_on_unverifiable: true}
+produce:
+  min_grade: 8.0
+  max_attempts: 3
+  grade_weights: {hook: 0.3, evidence: 0.3, specificity: 0.2, voice: 0.1, cta: 0.1}
+harvest:
+  git: {lookback_days: 60, min_significance: 2}
+  research: {max_sources: 8}
+  inventory: {min_briefs: 6, max_briefs: 8}
+utm:
+  template: "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"
+"""
+
+
+def _write_minimal_engine_config(root):
+    (root / "config").mkdir(exist_ok=True)
+    (root / "config" / "engine.yml").write_text(_MINIMAL_ENGINE_YML, encoding="utf-8")
+
+
+def test_capture_audio_end_to_end(tmp_path, monkeypatch):
+    """Wires ingest -> ffmpeg preprocess -> transcribe -> transcript_clean
+    end to end through the real CLI command, with ffmpeg/OpenAI/Anthropic
+    all faked (this dev environment has no ffmpeg — see test_capture_audio.py)."""
+    import shutil
+
+    from ce import store
+    from ce.capture import audio as audio_module
+    from ce.llm import gateway as gateway_module
+    from ce.llm.gateway import ProviderResponse
+
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    _write_minimal_engine_config(tmp_path)
+    # Gateway resolves prompts/ relative to cwd (like data/ and config/) --
+    # give this isolated tmp_path its own copy so transcript_clean.md
+    # resolves the same way it would from the repo root.
+    repo_prompts_dir = Path(__file__).parent.parent / "prompts"
+    shutil.copytree(repo_prompts_dir, tmp_path / "prompts")
+    audio_file = tmp_path / "memo.wav"
+    audio_file.write_bytes(b"fake-audio-bytes")
+
+    class FakePreprocessor:
+        def run(self, input_path, output_path, config):
+            output_path.write_bytes(b"fake-preprocessed")
+
+    class FakeTranscriptionClient:
+        def transcribe(self, path, *, model, vocabulary):
+            return "raw transcript text"
+
+    class FakeAnthropicClient:
+        def complete(self, *, model, system, user, max_tokens):
+            return ProviderResponse(content="cleaned transcript", in_tokens=10, out_tokens=5)
+
+    monkeypatch.setattr(audio_module, "FfmpegPreprocessor", FakePreprocessor)
+    monkeypatch.setattr(audio_module, "OpenAITranscriptionClient", FakeTranscriptionClient)
+    monkeypatch.setattr(gateway_module, "AnthropicClient", FakeAnthropicClient)
+
+    result = runner.invoke(
+        cli.app,
+        ["capture", "audio", str(audio_file), "--project", "test-proj", "--context", "a note"],
+    )
+
+    assert result.exit_code == Exit.OK, result.output
+    captures = store.list_captures(tmp_path / "data", "test-proj")
+    assert len(captures) == 1
+    assert captures[0].derived is not None
+    assert captures[0].derived.transcript_clean is not None
+    clean_path = tmp_path / "data" / "projects" / "test-proj" / captures[0].derived.transcript_clean
+    assert clean_path.read_text(encoding="utf-8") == "cleaned transcript"
+
+
+def test_capture_audio_rejects_unknown_moment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    audio_file = tmp_path / "memo.wav"
+    audio_file.write_bytes(b"fake")
+
+    result = runner.invoke(
+        cli.app,
+        ["capture", "audio", str(audio_file), "--project", "test-proj", "--moment", "bogus"],
+    )
+    assert result.exit_code != Exit.OK
+    assert isinstance(result.exception, CEError)
+
+
+def test_capture_screen_and_friction_and_list(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+
+    screenshot = tmp_path / "shot.png"
+    screenshot.write_bytes(b"fake-png")
+    screen_result = runner.invoke(
+        cli.app, ["capture", "screen", str(screenshot), "--project", "test-proj"]
+    )
+    assert screen_result.exit_code == Exit.OK, screen_result.output
+
+    friction_result = runner.invoke(
+        cli.app, ["capture", "friction", "the OOM hit at 40GB", "--project", "test-proj"]
+    )
+    assert friction_result.exit_code == Exit.OK, friction_result.output
+
+    list_result = runner.invoke(cli.app, ["capture", "list", "test-proj"])
+    assert list_result.exit_code == Exit.OK
+    assert "screenshot" in list_result.output
+    assert "friction" in list_result.output
+
+
+def test_capture_screen_unrecognized_extension_is_a_readable_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    bogus = tmp_path / "notes.txt"
+    bogus.write_bytes(b"not a screenshot")
+
+    result = runner.invoke(cli.app, ["capture", "screen", str(bogus), "--project", "test-proj"])
+    assert result.exit_code != Exit.OK
+    assert isinstance(result.exception, CEError)
+
+
+def test_capture_list_empty_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(cli.app, ["project", "new", "test-proj"])
+    result = runner.invoke(cli.app, ["capture", "list", "test-proj"])
+    assert result.exit_code == Exit.OK
+    assert "no captures" in result.output.lower()
 
 
 # --- exit code contract (TDD 9) --------------------------------------------
