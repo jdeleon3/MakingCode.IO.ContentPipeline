@@ -2,10 +2,10 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-19 (Pipeline run/log console):
-`gui/routes/runs.py` (`/runs` picker + recent-runs list, `/runs/<run-id>`
-console, `/runs/stream/<run-id>` SSE), `runs.html`, `run_detail.html`. Same
-day as WP-17/WP-18.
+**Last session:** 2026-07-28 — completed WP-20 (Brief review & selection):
+`gui/routes/briefs.py` (`/projects/<slug>/briefs` list, `POST
+/projects/<slug>/briefs/<brief-id>/select` shelling to the real `ce brief
+select`), `briefs.html`. Same day as WP-17/WP-18/WP-19.
 
 ---
 
@@ -45,8 +45,8 @@ day as WP-17/WP-18.
 | WP-17 | GUI scaffold, process runner, doctor screen | ✅ done | 473 tests passing (13 new), 1 skipped (pre-existing); new `gui` optional-dependency group (`fastapi`, `uvicorn`); no new `doctor.py` entry |
 | WP-18 | Project dashboard | ✅ done | 477 tests passing (4 new), 1 skipped (pre-existing); no new `doctor.py` entry (read-only screen, no new dependency) |
 | WP-19 | Pipeline run/log console | ✅ done | 487 tests passing (9 new), 1 skipped (pre-existing); no new `doctor.py` entry (subprocess console, no new dependency) |
-| WP-20 | Brief review & selection | 🔵 next | |
-| WP-21 | Article & grade review | ⬜ | |
+| WP-20 | Brief review & selection | ✅ done | 492 tests passing (6 new), 1 skipped (pre-existing); no new `doctor.py` entry (list + subprocess-select screen, no new dependency) |
+| WP-21 | Article & grade review | 🔵 next | |
 | WP-22 | Rendition editing & package preview | ⬜ | |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
@@ -56,6 +56,45 @@ day as WP-17/WP-18.
 
 ## Deviations from the TDD
 
+- **WP-20 · `/projects/<slug>/briefs` reads only `briefs.yml` (via
+  `store.read_briefs`), never `inventory.md`**, despite the Build line
+  naming both. Checked `harvest/inventory.py::format_inventory_md` directly
+  this session: it's a pure rendering of fields already on the `Brief`
+  model (archetype, angle, status, grounding, platforms, demand.recurrence,
+  dedupe_max_similarity, weakest_point, risk_flags, evidence count) — there
+  is nothing in the `.md` a second parse would surface that the structured
+  model doesn't already have. Same "the `.md` is what you read, the
+  structured file is what code reads" split WP-18 already established for
+  this exact pair of files.
+- **WP-20 · the POST `/projects/<slug>/briefs/<brief-id>/select` endpoint
+  never imports `harvest/inventory.py::assert_selectable`.** §10.10's hard
+  rule forbids the GUI importing pipeline modules at all, so the route only
+  ever reads the plain `Brief.status` field already on the model returned
+  by `store.read_briefs` — both to render the Select button's `disabled`
+  attribute server-side and to short-circuit the POST with a 400 before
+  spending a subprocess launch on an already-known-refused brief. The real
+  `ce brief select` subprocess is still the sole authority that actually
+  enforces the rule (a race — brief dropped by a concurrent run after this
+  page loaded — still surfaces as a real non-zero exit code, read from the
+  subprocess's own tee'd log via `_error_tail`, not swallowed).
+- **WP-20 · a successful select returns `{"piece_id": ...}` as a JSON 200,
+  not a raw HTTP redirect**, even though the Build line says "redirects to
+  the resulting piece." Same shape WP-19's own `/runs/start` already uses
+  (`{run_id}` JSON + `runs.html`'s JS doing `window.location.href`), chosen
+  here for the same reason: `/pieces/<id>` (WP-21) doesn't exist yet, and a
+  raw 3xx would make this endpoint's own failure (brief dropped, subprocess
+  exited non-zero) and "the destination page isn't built yet" collapse into
+  one fetch()-followed response instead of two distinguishable outcomes.
+  `briefs.html`'s script navigates to `/pieces/<piece_id>` on success, which
+  currently 404s until WP-21 lands — expected, not a bug in this WP.
+- **WP-20 · a dedupe collision is surfaced by rendering `Brief.risk_flags`
+  verbatim** (already written at brief-generation time by
+  `harvest/inventory.py`'s dedupe-annotation step as `"duplicate of
+  '<piece-id>' (similarity 0.XX)"`), not by the GUI computing or
+  re-checking similarity itself. `assert_selectable`'s own CLI-facing error
+  only hints "see risk_flags" rather than naming the piece inline — the
+  GUI's table is the richer surface of the same underlying data, not a
+  divergent one.
 - **WP-19 · `/runs` is a fixed picker over a hardcoded `_COMMANDS` list
   (`gui/routes/runs.py`), not a fully dynamic reflection of every §9
   command's real Typer signature.** The Build line says "pick any §9 stage

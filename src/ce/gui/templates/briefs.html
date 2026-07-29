@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Briefs - {{ project.title }} - Content Engine{% endblock %}
+{% block content %}
+  <p><a href="/projects/{{ project.slug }}">&larr; {{ project.title }}</a></p>
+  <h1>Briefs</h1>
+
+  {% if not briefs %}
+    <p class="empty-state">
+      No briefs yet. Run <code>ce harvest {{ project.slug }}</code>.
+    </p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Archetype</th>
+          <th>Demand</th>
+          <th>Evidence</th>
+          <th>Grounding</th>
+          <th>Dedupe</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for brief in briefs %}
+          {% set dropped = brief.status == BriefStatus.DROPPED %}
+          <tr>
+            <td>
+              <strong>{{ brief.title }}</strong><br>
+              <span style="color:#888;">{{ brief.angle }}</span>
+              {% if brief.weakest_point %}
+                <br><span style="color:#888;">weakest point: {{ brief.weakest_point }}</span>
+              {% endif %}
+            </td>
+            <td>{{ brief.archetype.value }}</td>
+            <td>
+              recurrence {{ brief.demand.recurrence }}
+              {% if brief.demand.signals %}
+                <br><span style="color:#888;">{{ brief.demand.signals | join(", ") }}</span>
+              {% endif %}
+            </td>
+            <td>{{ brief.evidence | length }} citation(s)</td>
+            <td>{{ brief.grounding_strength.value }}</td>
+            <td>{{ "%.2f" | format(brief.dedupe_max_similarity) }}</td>
+            <td>
+              <span class="status status-{{ brief.status.value }}">{{ brief.status.value }}</span>
+              {% if brief.risk_flags %}
+                <br><span style="color:#a22;">{{ brief.risk_flags | join("; ") }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <button
+                class="select-btn"
+                data-brief-id="{{ brief.id }}"
+                {% if dropped %}disabled title="dropped -- see risk flags"{% endif %}
+              >Select</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p id="error" style="color: #c33;"></p>
+  {% endif %}
+
+  <script>
+    // A dropped/weak brief's Select control is disabled server-side above
+    // (the `disabled` attribute is rendered from `Brief.status`, not toggled
+    // by this script) -- WP-20's Done-when line asks for the UI itself to
+    // refuse the click, not just a rejected POST after the fact. The POST
+    // handler re-checks the same status field regardless, since this is a
+    // read of a data field, not a bypass of `assert_selectable`'s own rule.
+    const errorEl = document.getElementById("error");
+
+    document.querySelectorAll(".select-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        errorEl.textContent = "";
+        btn.disabled = true;
+        btn.textContent = "Selecting…";
+        const briefId = btn.dataset.briefId;
+        fetch(`/projects/{{ project.slug }}/briefs/${briefId}/select`, { method: "POST" })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              throw new Error(data.detail || "could not select brief");
+            }
+            window.location.href = `/pieces/${data.piece_id}`;
+          })
+          .catch((err) => {
+            errorEl.textContent = err.message;
+            btn.disabled = false;
+            btn.textContent = "Select";
+          });
+      });
+    });
+  </script>
+{% endblock %}

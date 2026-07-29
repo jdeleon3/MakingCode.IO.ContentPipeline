@@ -31,7 +31,7 @@
     </dl>
   {% endif %}
 
-  <h2>Briefs ({{ briefs | length }})</h2>
+  <h2>Briefs ({{ briefs | length }}) <a href="/projects/{{ project.slug }}/briefs">review &rarr;</a></h2>
   {% if not briefs %}
     <p class="empty-state">No briefs yet.</p>
   {% else %}
