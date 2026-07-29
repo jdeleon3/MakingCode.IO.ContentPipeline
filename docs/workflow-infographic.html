@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content Engine — End-to-End Workflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* ---------------------------------------------------------------------
+     Tokens — lifted directly from config/brand.css so this reference doc
+     matches the same palette every generated thumbnail/code-card already
+     uses. Dark-only on purpose: the product itself is a terminal-driven,
+     dark-by-default CLI tool (config/brand.css: "site is dark-theme by
+     default") — this page commits to that world rather than bolting on a
+     light variant the brand never actually has.
+  --------------------------------------------------------------------- */
+  :root {
+    --bg: #0a0b0d;
+    --bg-raised: #15171b;
+    --border: #26282d;
+    --fg: #ece7dd;
+    --fg-muted: #8d8d86;
+    --accent: #259ae8;
+    --accent-dim: #165c8b;
+    --accent-wash: #259ae81a;
+
+    --font-display: "Fraunces", "Iowan Old Style", serif;
+    --font-body: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+    --radius: 2px;
+    --content-width: 640px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { color-scheme: dark; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stage { animation: rise 0.5s ease-out backwards; }
+    .stage:nth-of-type(1) { animation-delay: 0.02s; }
+    .stage:nth-of-type(2) { animation-delay: 0.06s; }
+    .stage:nth-of-type(3) { animation-delay: 0.10s; }
+    .stage:nth-of-type(4) { animation-delay: 0.14s; }
+    .stage:nth-of-type(5) { animation-delay: 0.18s; }
+    .stage:nth-of-type(6) { animation-delay: 0.22s; }
+    .stage:nth-of-type(7) { animation-delay: 0.26s; }
+    .stage:nth-of-type(8) { animation-delay: 0.30s; }
+    .stage:nth-of-type(9) { animation-delay: 0.34s; }
+    .stage:nth-of-type(10) { animation-delay: 0.38s; }
+    .stage:nth-of-type(11) { animation-delay: 0.42s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  }
+
+  a { color: var(--accent); }
+
+  code, .mono { font-family: var(--font-mono); }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+
+  /* --- Header ----------------------------------------------------- */
+
+  header {
+    max-width: var(--content-width);
+    margin-bottom: 3.5rem;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.9rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2rem, 4vw, 2.6rem);
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0 0 0.9rem;
+  }
+
+  .dek {
+    font-size: 1.05rem;
+    color: var(--fg-muted);
+    max-width: 56ch;
+    margin: 0 0 1.75rem;
+  }
+
+  .dek strong { color: var(--fg); font-weight: 600; }
+
+  /* --- Legend ------------------------------------------------------ */
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    color: var(--fg-muted);
+  }
+
+  .legend-swatch { width: 0.65rem; height: 0.65rem; flex: none; }
+  .legend-swatch.auto { border-radius: 50%; border: 1.5px solid var(--fg-muted); }
+  .legend-swatch.manual { border-radius: 50%; background: var(--accent); }
+  .legend-swatch.tip { background: var(--accent-dim); }
+  .legend-swatch.warn { background: #b7791f; }
+
+  /* --- Pipeline ------------------------------------------------------ */
+
+  ol.pipeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-width: var(--content-width);
+  }
+
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    column-gap: 1.1rem;
+    padding-bottom: 2.6rem;
+  }
+
+  .stage::before {
+    /* the spine: one continuous line drawn as stacked per-row segments */
+    content: "";
+    position: absolute;
+    left: 21px;
+    top: 2.6rem;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .stage:last-of-type::before { display: none; }
+
+  .node {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    z-index: 1;
+    background: var(--bg);
+  }
+
+  .stage.auto .node {
+    border: 1.5px solid var(--fg-muted);
+    color: var(--fg-muted);
+  }
+
+  .stage.manual .node {
+    background: var(--accent);
+    color: var(--bg);
+    border: 1.5px solid var(--accent);
+  }
+
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.35rem;
+  }
+
+  .stage-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.32rem;
+    letter-spacing: -0.005em;
+  }
+
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.45rem;
+    border-radius: var(--radius);
+    line-height: 1.5;
+  }
+
+  .tag.manual { background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent-dim); }
+  .tag.auto { color: var(--fg-muted); border: 1px solid var(--border); }
+
+  .cmd {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--fg);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.6rem;
+    margin: 0.5rem 0 0.7rem;
+    white-space: pre-wrap;
+  }
+
+  .cmd .flag { color: var(--fg-muted); }
+
+  .stage p.desc {
+    margin: 0 0 0.7rem;
+    color: var(--fg);
+    max-width: 58ch;
+  }
+
+  .callout {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.65rem;
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    border-left: 2px solid var(--accent-dim);
+    background: var(--bg-raised);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    max-width: 58ch;
+  }
+
+  .callout.warn { border-left-color: #b7791f; }
+
+  .callout-label {
+    grid-column: 1;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-dim);
+    align-self: start;
+    padding-top: 0.15rem;
+  }
+
+  .callout.warn .callout-label { color: #d7995a; }
+
+  .callout p {
+    grid-column: 2;
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--fg-muted);
+  }
+
+  .callout p strong { color: var(--fg); font-weight: 600; }
+
+  /* --- Standalone banners (between/around stages) --------------------- */
+
+  .banner {
+    max-width: var(--content-width);
+    margin: -0.8rem 0 2.8rem 0;
+    padding: 1rem 1.15rem;
+    border: 1px solid #b7791f55;
+    background: linear-gradient(180deg, #b7791f14, transparent 70%);
+    border-radius: var(--radius);
+  }
+
+  .banner .banner-head {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #d7995a;
+    margin-bottom: 0.5rem;
+  }
+
+  .banner p { margin: 0 0 0.5rem; color: var(--fg); font-size: 0.94rem; }
+  .banner p:last-child { margin-bottom: 0; }
+  .banner .fine { color: var(--fg-muted); font-size: 0.85rem; }
+
+  /* --- Footer / golden rules ------------------------------------------ */
+
+  footer {
+    max-width: var(--content-width);
+    margin-top: 1.5rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  footer h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.3rem;
+    margin: 0 0 1.1rem;
+  }
+
+  .rules {
+    display: grid;
+    gap: 0.9rem;
+    margin-bottom: 2.2rem;
+  }
+
+  .rule {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.8rem;
+    padding: 0.85rem 1rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .rule .num {
+    grid-row: 1 / 3;
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.95rem;
+    align-self: start;
+  }
+
+  .rule strong { font-size: 0.98rem; }
+  .rule span { color: var(--fg-muted); font-size: 0.9rem; }
+
+  .colophon {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    line-height: 1.7;
+  }
+
+  .colophon a { color: var(--fg-muted); text-decoration-color: var(--border); }
+  .colophon a:hover { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 2.5rem 1.1rem 4rem; }
+    .stage { grid-template-columns: 36px 1fr; column-gap: 0.8rem; }
+    .node { width: 36px; height: 36px; font-size: 0.82rem; }
+    .stage::before { left: 17px; top: 2.2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Content Engine · ce</p>
+    <h1>From a raw capture to a published post</h1>
+    <p class="dek">
+      Eleven stages, one project at a time. <strong>Filled circles are things
+      only you can do</strong> — outlined circles are what the pipeline does
+      for you once you've made a call. Every CLI command below has an
+      equivalent screen in <code>ce gui</code>; the sequence is identical
+      either way.
+    </p>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch manual"></span>Manual step</div>
+      <div class="legend-item"><span class="legend-swatch auto"></span>Automated step</div>
+      <div class="legend-item"><span class="legend-swatch tip"></span>Quality tip</div>
+      <div class="legend-item"><span class="legend-swatch warn"></span>Known landmine</div>
+    </div>
+  </header>
+
+  <ol class="pipeline pipeline-top">
+
+    <li class="stage manual">
+      <div class="node">01</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Capture</span>
+          <span class="tag manual">Manual</span>
+        </div>
+        <div class="cmd">ce capture audio|screen|friction <span class="flag">&lt;file|note&gt;</span></div>
+        <p class="desc">
+          Record the raw material as it happens — audio notes, screenshots,
+          one-line friction reports. Nothing downstream can invent what
+          wasn't captured here.
+        </p>
+        <div class="callout">
+          <span class="callout-label">Tip</span>
+          <p><strong>Capture friction in the moment,</strong> not from memory
+          later. "It just died, no warning" is a real quote from a real
+          capture in this project — a reconstructed version a week later
+          reads flat by comparison.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage auto">
+      <div class="node">02</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Harvest</span>
+          <span class="tag auto">Automated</span>
+        </div>
+        <div class="cmd">ce harvest <span class="flag">&lt;project&gt; [--skip-research]</span></div>
+        <p class="desc">
+          Pulls git history, transcribes pending audio, runs a project-wide
+          research pass, then drafts a batch of candidate briefs
+          (<code>briefs.yml</code>).
+        </p>
+        <div class="callout">
+          <span class="callout-label">Tip</span>
+          <p><strong>Fill in <code>project.yml#tags</code> and
+          <code>#selection.demand_signals</code> before this runs.</strong>
+          Both feed straight into the brief-drafting prompt — an empty
+          <code>tags: []</code> gives the model nothing to search or angle
+          against.</p>
+        </div>
+      </div>
+    </li>
+
+  </ol>
+
+  <div class="banner">
+    <div class="banner-head">Known landmine — before you re-harvest</div>
+    <p>
+      <code>ce harvest</code> fully <strong>rewrites and renumbers</strong>
+      <code>briefs.yml</code> every time — it never merges. Every
+      downstream command (<code>produce</code>, <code>verify</code>,
+      <code>assets</code>, <code>render</code>, <code>package</code>,
+      <code>publish</code>) resolves its piece's brief live, by id, from
+      whatever <code>briefs.yml</code> currently holds.
+    </p>
+    <p class="fine">
+      Re-harvesting after you've already selected a brief can silently
+      point an in-flight piece at a different brief's content, or break it
+      outright. New captures always get picked up on the next harvest
+      regardless — the risk is only for a piece already mid-pipeline.
+      Finish or park it first.
+    </p>
+  </div>
+
+  <ol class="pipeline pipeline-rest">
+
+    <li class="stage manual">
+      <div class="node">03</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Review &amp; select a brief</span>
+          <span class="tag manual">Manual</span>
+        </div>
+        <div class="cmd">ce brief list <span class="flag">&lt;project&gt;</span>
+ce brief select <span class="flag">&lt;brief-id&gt; [--skip-research]</span></div>
+        <p class="desc">
+          Weak or too-similar briefs are already disabled — the judgment
+          call is which of what's left is worth writing. Selecting a brief
+          promotes it to a piece and runs a second research pass scoped to
+          <em>this</em> brief's own title and angle.
+        </p>
+        <div class="callout">
+          <span class="callout-label">Tip</span>
+          <p>Read <code>weakest_point</code> before you pick. It's the
+          system naming its own gap in the evidence — plan to address it (a
+          caveat, more evidence) rather than let the article overclaim past
+          what actually supports it.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage auto">
+      <div class="node">04</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Produce</span>
+          <span class="tag auto">Automated</span>
+        </div>
+        <div class="cmd">ce produce <span class="flag">&lt;piece-id&gt; [--no-cache]</span></div>
+        <p class="desc">
+          Drafts the article, self-grades it against five weighted
+          dimensions, and revises — up to a configured attempt limit or
+          until the grade clears the bar.
+        </p>
+        <div class="callout">
+          <span class="callout-label">Tip</span>
+          <p>The two reasoning-tier calls in this pipeline —
+          <code>brief_generate</code> and <code>article_grade</code> — are
+          consistently the priciest line items in a run's cost breakdown.
+          Worth knowing before you re-run <code>produce</code> on a whim
+          just to see a different draft.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage manual">
+      <div class="node">05</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Edit the draft</span>
+          <span class="tag manual">Manual</span>
+        </div>
+        <div class="cmd">$EDITOR article.md</div>
+        <p class="desc">
+          Open <code>article.md</code> and actually change it. This is the
+          one step the whole system is built to assume happens —
+          ADR-008's edit check (a later mtime vs. <code>generated_at</code>)
+          exists purely to notice whether you did.
+        </p>
+        <div class="callout">
+          <span class="callout-label">Tip</span>
+          <p><strong>This is the single highest-leverage manual step for
+          quality.</strong> A self-graded 8/10 draft is a first draft, not
+          a final one — voice, specificity, and the honest caveat about the
+          weakest point all improve here, not in the prompt.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage auto">
+      <div class="node">06</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Verify</span>
+          <span class="tag auto">Automated gate</span>
+        </div>
+        <div class="cmd">ce verify <span class="flag">&lt;piece-id&gt; [--force]</span></div>
+        <p class="desc">
+          Extracts every factual claim, classifies it (grounded / external /
+          opinion), and checks each one. Anything unverifiable blocks the
+          pipeline unless you override it.
+        </p>
+        <div class="callout warn">
+          <span class="callout-label">Tip</span>
+          <p>Read <code>verification.json</code> before reaching for
+          <code>--force</code>. A blocked claim is almost always pointing at
+          a real gap in the evidence, not a false positive.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage manual">
+      <div class="node">07</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Stage assets</span>
+          <span class="tag manual">Manual, required input</span>
+        </div>
+        <div class="cmd">assets/hero-source.&lt;ext&gt;
+assets/thumbnail-bg.&lt;ext&gt;
+assets/diagrams/*.mmd
+evidence/*</div>
+        <p class="desc">
+          Nothing here is generated from nothing. Drop a real screenshot,
+          a code snippet, a hand-authored Mermaid diagram — whatever this
+          piece actually has — into the piece's own folder before running
+          <code>ce assets</code>.
+        </p>
+        <div class="callout warn">
+          <span class="callout-label">Tip</span>
+          <p><strong>Skip this and <code>ce assets</code> still "succeeds"</strong>
+          — with a flat dark rectangle for a thumbnail and nothing else.
+          It's a working renderer with an empty pantry, not a bug.</p>
+        </div>
+      </div>
+    </li>
+
+    <li class="stage auto">
+      <div class="node">08</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Render assets &amp; copy</span>
+          <span class="tag auto">Automated</span>
+        </div>
+        <div class="cmd">ce assets <span class="flag">&lt;piece-id&gt; [--only KIND]</span>
+ce render <span class="flag">&lt;piece-id&gt; [--platform P]</span></div>
+        <p class="desc">
+          Renders whatever was staged into PNGs, then adapts the article
+          into per-platform copy for LinkedIn, Facebook, and YouTube —
+          each with its own length limits and hook rules.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage manual">
+      <div class="node">09</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Package &amp; review</span>
+          <span class="tag manual">Manual QA gate</span>
+        </div>
+        <div class="cmd">ce package <span class="flag">&lt;piece-id&gt;</span> → outbox/&lt;id&gt;/REVIEW.html</div>
+        <p class="desc">
+          Opens as one self-contained page: every platform's copy box with
+          a live character counter, the staged images, a screenshot
+          checklist. Read all of it before anything ships.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage auto">
+      <div class="node">10</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Publish the site</span>
+          <span class="tag auto">Automated, confirm-gated</span>
+        </div>
+        <div class="cmd">ce publish site <span class="flag">&lt;piece-id&gt; [--dry-run]</span></div>
+        <p class="desc">
+          The one command in this whole pipeline that reaches outside the
+          machine — a real git commit and push. It's the only stage the GUI
+          puts behind an explicit confirm dialog.
+        </p>
+      </div>
+    </li>
+
+    <li class="stage manual">
+      <div class="node">11</div>
+      <div>
+        <div class="stage-head">
+          <span class="stage-title">Post &amp; track</span>
+          <span class="tag manual">Manual, always</span>
+        </div>
+        <div class="cmd">ce metrics pull</div>
+        <p class="desc">
+          Copy each platform's rendition from <code>REVIEW.html</code> and
+          post it yourself — there is no API auto-posting anywhere in this
+          system, by design. Site clicks and YouTube stats pull back
+          automatically later; LinkedIn and Facebook engagement numbers
+          have no public API and stay hand-entered into
+          <code>posted.yml</code>.
+        </p>
+      </div>
+    </li>
+
+  </ol>
+
+  <footer>
+    <h2>Two rules worth remembering</h2>
+    <div class="rules">
+      <div class="rule">
+        <span class="num">→</span>
+        <strong>Never re-harvest a project with a piece still mid-pipeline</strong>
+        <span>without finishing or parking that piece first — see the landmine above stage 03.</span>
+      </div>
+      <div class="rule">
+        <span class="num">→</span>
+        <strong>The draft is not the article</strong>
+        <span>every stage from produce onward assumes you actually opened article.md and changed something — the grading loop measures a floor, not a ceiling.</span>
+      </div>
+    </div>
+    <p class="colophon">
+      Content Engine (<code>ce</code>) — see <a href="TDD-content-engine.md">docs/TDD-content-engine.md</a>
+      for the full spec and <a href="../STATUS.md">STATUS.md</a> for current build status and deviations.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
