@@ -2,10 +2,14 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-21 (Article & grade review):
-`gui/routes/pieces.py` (`/pieces/<id>` article/grade/verification screen,
-`POST /pieces/<id>/article` save-back), `pieces.html`; small per-piece link
-addition to `project_detail.html`. Same day as WP-17/WP-18/WP-19/WP-20.
+**Last session:** 2026-07-28 — completed WP-22 (Rendition editing & package
+preview): `gui/routes/renditions.py` (`/pieces/<id>/renditions` — per-platform
+`renditions/*.yml` editing with live character counters, asset previews, an
+embedded `outbox/<id>/REVIEW.html` package preview, confirm-gated `publish
+site`/`posted` triggers), `renditions.html`; `_find_piece_or_404` in
+`pieces.py` promoted to public `find_piece_or_404` so this module can reuse
+it. This closes the GUI critical path (17 → 19 → 21 → 22). Same day as
+WP-17–WP-21.
 
 ---
 
@@ -47,15 +51,36 @@ addition to `project_detail.html`. Same day as WP-17/WP-18/WP-19/WP-20.
 | WP-19 | Pipeline run/log console | ✅ done | 487 tests passing (9 new), 1 skipped (pre-existing); no new `doctor.py` entry (subprocess console, no new dependency) |
 | WP-20 | Brief review & selection | ✅ done | 492 tests passing (6 new), 1 skipped (pre-existing); no new `doctor.py` entry (list + subprocess-select screen, no new dependency) |
 | WP-21 | Article & grade review | ✅ done | 500 tests passing (8 new), 1 skipped (pre-existing); no new `doctor.py` entry (article/grade/verification review + save-back, no new dependency) |
-| WP-22 | Rendition editing & package preview | 🔵 next | |
+| WP-22 | Rendition editing & package preview | ✅ done | 510 tests passing (10 new), 1 skipped (pre-existing); no new `doctor.py` entry (editing/preview screen over existing files, no new dependency); **GUI critical path complete** |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
-**GUI critical path:** 17 → 19 → 21 → 22 (18, 20 can slip)
+**GUI critical path:** 17 → 19 → 21 → 22 (18, 20 can slip) — ✅ complete
 
 ---
 
 ## Deviations from the TDD
 
+- **WP-22 · the YouTube title counter's `60`-char limit is a second hardcoded
+  literal in `renditions.html` (`data-max="60"`), not read from any shared
+  source.** `produce/renditions.py::YOUTUBE_TITLE_MAX_CHARS` is the real
+  constant `ce render` validates against, but it lives under `produce/` —
+  §10.10's hard rule forbids the GUI importing anything from `produce/`, so
+  unlike `package/builder.py` (a pipeline module itself, WP-13, which *does*
+  import that constant), this screen can't reuse it directly. Every other
+  counter on this screen (LinkedIn/Facebook `max_chars`) reads live from
+  `config/platforms/<p>.yml` via `ce.config.load_platform_config` — genuinely
+  config-backed, no duplication. YouTube's title limit is the one number in
+  TDD 10.6 that was never config-driven in the first place (WP-12's own
+  deviation log already flagged it as a hardcoded prompt/validation constant,
+  not a `PlatformConfig` field), so there was no config value to read here
+  either — flagged as a known, unavoidable-given-the-import-rule duplication
+  rather than a fix-able gap. Caught by this session's `wp-spec-conformance`
+  review, not before.
+- **WP-22 · `_find_piece_or_404` in `gui/routes/pieces.py` (WP-21) was
+  renamed to public `find_piece_or_404`.** `renditions.py` needs the exact
+  same piece-lookup-or-404/409 behavior `pieces.py` already had — reusing it
+  via import rather than a second copy in the new route module, matching the
+  DRY expectation this repo's CLAUDE.md calls out explicitly for GUI code.
 - **WP-21 · `grades.json`/`verification.json` are parsed as plain JSON
   (`gui/routes/pieces.py::_read_json`), never through
   `produce/writer.py::GradesLog` or `gates/claims.py::VerificationResult`.**

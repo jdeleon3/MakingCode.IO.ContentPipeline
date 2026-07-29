@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}{{ piece.id }} renditions - Content Engine{% endblock %}
+{% block content %}
+  <p><a href="/pieces/{{ piece.id }}">&larr; {{ piece.id }}</a></p>
+  <h1>{{ piece.id }} &mdash; Renditions &amp; package</h1>
+
+  {% for p in platforms %}
+    <h2>{{ p.name | capitalize }}</h2>
+    {% if p.rendition is none %}
+      <p class="empty-state">
+        Not rendered yet. Run <code>ce render {{ piece.id }} --platform {{ p.name }}</code>
+        (see <a href="/runs">Runs</a>, or the button below).
+      </p>
+    {% elif p.name == "youtube" %}
+      <p>
+        <label for="title-youtube">
+          Title
+          {% if p.config %}
+            <span class="char-counter" data-target="title-youtube" data-max="60">0/60</span>
+          {% endif %}
+        </label><br>
+        <input type="text" id="title-youtube" style="width:100%;" value="{{ p.rendition.title or '' }}">
+      </p>
+      <p>
+        <label for="body-youtube">Description</label><br>
+        <textarea id="body-youtube" rows="8" style="width:100%; font-family:monospace;"
+        >{{ p.rendition.body }}</textarea>
+      </p>
+      <p>
+        <label for="chapters-youtube">Chapters (one per line, <code>MM:SS Label</code>)</label><br>
+        <textarea id="chapters-youtube" rows="4" style="width:100%; font-family:monospace;"
+        >{{ p.rendition.chapters | join("\n") }}</textarea>
+      </p>
+      <p>
+        <button class="save-btn" data-platform="youtube">Save YouTube</button>
+        <span class="save-status" data-platform="youtube"></span>
+      </p>
+    {% else %}
+      <p>
+        <label for="body-{{ p.name }}">
+          Body
+          {% if p.config %}
+            <span class="char-counter" data-target="body-{{ p.name }}" data-max="{{ p.config.max_chars }}"
+              >0/{{ p.config.max_chars }}</span>
+          {% endif %}
+        </label><br>
+        <textarea id="body-{{ p.name }}" rows="8" style="width:100%; font-family:monospace;"
+        >{{ p.rendition.body }}</textarea>
+      </p>
+      {% if not p.config or not p.config.links_in_body %}
+        <p>
+          <label for="first_comment-{{ p.name }}">First comment (carries the UTM'd link)</label><br>
+          <textarea id="first_comment-{{ p.name }}" rows="3" style="width:100%; font-family:monospace;"
+          >{{ p.rendition.first_comment or '' }}</textarea>
+        </p>
+      {% endif %}
+      <p>
+        <button class="save-btn" data-platform="{{ p.name }}">Save {{ p.name | capitalize }}</button>
+        <span class="save-status" data-platform="{{ p.name }}"></span>
+      </p>
+    {% endif %}
+  {% endfor %}
+
+  <h2>Assets</h2>
+  {% if not asset_files %}
+    <p class="empty-state">No staged assets yet. Run <code>ce assets {{ piece.id }}</code>.</p>
+  {% else %}
+    <div style="display:flex; flex-wrap:wrap; gap:1rem;">
+      {% for f in asset_files %}
+        <figure style="margin:0;">
+          <img src="/pieces/{{ piece.id }}/assets/{{ f }}"
+               style="max-width:200px; max-height:150px; display:block; border:1px solid #8888; border-radius:4px;">
+          <figcaption style="font-size:0.8rem; color:#888;">{{ f }}</figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h2>Package preview</h2>
+  {% if not has_package %}
+    <p class="empty-state">
+      Not packaged yet. Run <code>ce package {{ piece.id }}</code> below to produce
+      <code>outbox/{{ piece.id }}/REVIEW.html</code>.
+    </p>
+  {% else %}
+    <p>This is the literal <code>REVIEW.html</code> the last <code>ce package</code> run produced.</p>
+    <iframe src="/pieces/{{ piece.id }}/renditions/review/"
+            style="width:100%; height:640px; border:1px solid #8888; border-radius:6px;"></iframe>
+  {% endif %}
+
+  <h2>Actions</h2>
+  <p>
+    <button class="run-btn" data-command="render">Run render</button>
+    <button class="run-btn" data-command="package">Run package</button>
+    <span id="run-error" style="color:#c33;"></span>
+  </p>
+
+  <h3>Publish site</h3>
+  <p>
+    <label>
+      <input type="checkbox" id="publish-confirm">
+      This pushes to <code>identity.site_repo</code> (a real <code>git push</code>). I want to proceed.
+    </label>
+  </p>
+  <p>
+    <button id="publish-btn" disabled>Publish site</button>
+    <span id="publish-error" style="color:#c33;"></span>
+  </p>
+
+  <h3>Record a manual post</h3>
+  <p>Writes local data only (<code>data/posted.yml</code>) -- not confirm-gated.</p>
+  {% for name in ("linkedin", "facebook", "youtube") %}
+    <p>
+      <label for="posted-url-{{ name }}">{{ name | capitalize }} URL</label>
+      <input type="text" id="posted-url-{{ name }}" placeholder="https://..." style="width:20rem;">
+      <button class="posted-btn" data-platform="{{ name }}">Record posted</button>
+      <span class="posted-status" data-platform="{{ name }}"></span>
+    </p>
+  {% endfor %}
+
+  <script>
+    // Live character counters against the exact platform limits `ce render`
+    // itself validates against (config/platforms/<p>.yml's max_chars /
+    // YouTube's fixed 60), not a second hardcoded copy (WP-22 Done-when).
+    document.querySelectorAll(".char-counter").forEach((counter) => {
+      const target = document.getElementById(counter.dataset.target);
+      const max = parseInt(counter.dataset.max, 10);
+      function update() {
+        const len = target.value.length;
+        counter.textContent = `${len}/${max}`;
+        counter.classList.toggle("over", len > max);
+      }
+      target.addEventListener("input", update);
+      update();
+    });
+
+    // Saving writes straight back to `renditions/<platform>.yml` at its
+    // normal path -- a subsequent `ce package` run picks up the edit, same
+    // "GUI save == manual edit" shape as WP-21's article save.
+    const saveStatusFor = (platform) =>
+      document.querySelector(`.save-status[data-platform="${platform}"]`);
+
+    document.querySelectorAll(".save-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const platform = btn.dataset.platform;
+        const status = saveStatusFor(platform);
+        status.textContent = "saving…";
+        const payload = { body: document.getElementById(`body-${platform}`).value };
+        if (platform === "youtube") {
+          payload.title = document.getElementById("title-youtube").value;
+          payload.chapters = document
+            .getElementById("chapters-youtube")
+            .value.split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+        } else {
+          const fc = document.getElementById(`first_comment-${platform}`);
+          payload.first_comment = fc ? fc.value : null;
+        }
+        fetch(`/pieces/{{ piece.id }}/renditions/${platform}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+          .then((r) => {
+            if (!r.ok) throw new Error("save failed");
+            status.textContent = "saved";
+          })
+          .catch(() => {
+            status.textContent = "save failed";
+          });
+      });
+    });
+
+    // `render`/`package` reuse WP-19's own `/runs/start` console, same
+    // pattern as WP-21's `verify`/`assets`/`render` buttons.
+    const runErrorEl = document.getElementById("run-error");
+    document.querySelectorAll(".run-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        runErrorEl.textContent = "";
+        btn.disabled = true;
+        fetch("/runs/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command: btn.dataset.command, argument: "{{ piece.id }}" }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || "could not start run");
+            window.location.href = `/runs/${data.run_id}`;
+          })
+          .catch((err) => {
+            runErrorEl.textContent = err.message;
+            btn.disabled = false;
+          });
+      });
+    });
+
+    // `publish site` reaches outside this machine (git push) -- disabled
+    // until the confirm box is checked, and `/runs/start` re-checks the same
+    // rule server-side, same confirm-gate shape as WP-19's `/runs` console.
+    const publishConfirm = document.getElementById("publish-confirm");
+    const publishBtn = document.getElementById("publish-btn");
+    const publishError = document.getElementById("publish-error");
+    publishConfirm.addEventListener("change", () => {
+      publishBtn.disabled = !publishConfirm.checked;
+    });
+    publishBtn.addEventListener("click", () => {
+      publishError.textContent = "";
+      publishBtn.disabled = true;
+      fetch("/runs/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: "publish-site",
+          argument: "{{ piece.id }}",
+          confirm: publishConfirm.checked,
+        }),
+      })
+        .then(async (r) => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(data.detail || "could not start run");
+          window.location.href = `/runs/${data.run_id}`;
+        })
+        .catch((err) => {
+          publishError.textContent = err.message;
+          publishBtn.disabled = false;
+        });
+    });
+
+    // `ce posted` writes local data only (data/posted.yml) -- not
+    // confirm-gated, same distinction WP-19's `_COMMANDS` already makes.
+    document.querySelectorAll(".posted-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const platform = btn.dataset.platform;
+        const status = document.querySelector(`.posted-status[data-platform="${platform}"]`);
+        const url = document.getElementById(`posted-url-${platform}`).value.trim();
+        if (!url) {
+          status.textContent = "enter a URL first";
+          return;
+        }
+        status.textContent = "recording…";
+        fetch("/runs/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            command: "posted",
+            argument: "{{ piece.id }}",
+            extra: `--platform ${platform} --url ${url}`,
+          }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || "could not start run");
+            window.location.href = `/runs/${data.run_id}`;
+          })
+          .catch((err) => {
+            status.textContent = err.message;
+          });
+      });
+    });
+  </script>
+{% endblock %}

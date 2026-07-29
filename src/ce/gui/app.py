@@ -23,6 +23,7 @@ from ce.gui.routes import briefs as briefs_routes
 from ce.gui.routes import dashboard as dashboard_routes
 from ce.gui.routes import doctor as doctor_routes
 from ce.gui.routes import pieces as pieces_routes
+from ce.gui.routes import renditions as renditions_routes
 from ce.gui.routes import runs as runs_routes
 
 _PACKAGE_DIR = Path(__file__).parent
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(runs_routes.router)
     app.include_router(briefs_routes.router)
     app.include_router(pieces_routes.router)
+    app.include_router(renditions_routes.router)
 
     return app
 

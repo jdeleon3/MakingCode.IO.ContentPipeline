@@ -40,7 +40,11 @@ from ce.exit_codes import ConfigError
 router = APIRouter()
 
 
-def _find_piece_or_404(data_root: Path, piece_id: str):
+def find_piece_or_404(data_root: Path, piece_id: str):
+    """Shared by every `/pieces/<id>...` route (this module and
+    `renditions.py`, WP-22) -- one lookup-or-404/409 helper rather than a
+    second copy in each route module.
+    """
     try:
         found = store.find_piece(data_root, piece_id)
     except ConfigError as exc:
@@ -61,7 +65,7 @@ def _read_json(path: Path) -> dict | None:
 @router.get("/pieces/{piece_id}")
 def piece_detail(request: Request, piece_id: str) -> HTMLResponse:
     data_root = Path("data")
-    project, piece = _find_piece_or_404(data_root, piece_id)
+    project, piece = find_piece_or_404(data_root, piece_id)
 
     article_path = store.piece_dir(data_root, project.slug, piece.id) / piece.article_path
     article_text = article_path.read_text(encoding="utf-8") if article_path.exists() else None
@@ -93,7 +97,7 @@ class _ArticleSave(BaseModel):
 @router.post("/pieces/{piece_id}/article")
 def save_article(piece_id: str, body: _ArticleSave) -> dict[str, str]:
     data_root = Path("data")
-    project, piece = _find_piece_or_404(data_root, piece_id)
+    project, piece = find_piece_or_404(data_root, piece_id)
 
     article_path = store.piece_dir(data_root, project.slug, piece.id) / piece.article_path
     article_path.parent.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,7 @@
   <p><a href="/projects/{{ project.slug }}">&larr; {{ project.title }}</a></p>
   <h1>{{ piece.id }} <span class="status status-{{ piece.status.value }}">{{ piece.status.value }}</span></h1>
   <p><code>{{ piece.slug }}</code></p>
+  <p><a href="/pieces/{{ piece.id }}/renditions">Renditions &amp; package preview &rarr;</a></p>
 
   <h2>Article</h2>
   {% if article_text is none %}
