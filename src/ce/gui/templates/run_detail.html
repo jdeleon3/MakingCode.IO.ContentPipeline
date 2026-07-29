@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run_id }} - Content Engine{% endblock %}
+{% block content %}
+  <p><a href="/runs">&larr; back to runs</a></p>
+  <h1><code>{{ command_label }}</code></h1>
+  <p>Run <code>{{ run_id }}</code> <span id="status"></span></p>
+
+  <pre class="console" id="console">{% if static_content %}{{ static_content }}{% endif %}</pre>
+
+  {% if static_content %}
+    <p class="empty-state">
+      This run's process is no longer tracked by this GUI session (the GUI
+      was restarted since it ran), so its exit code can't be shown -- this is
+      the log file's content as-is.
+    </p>
+  {% else %}
+    <script>
+      // Same native-EventSource choice as /doctor (TDD 10.10, WP-17): tails
+      // the run log over SSE, not the subprocess's stdout directly, so a
+      // closed browser tab never kills the process and reopening this exact
+      // URL always replays the same log from the top (WP-19's Done-when line).
+      const consoleEl = document.getElementById("console");
+      const statusEl = document.getElementById("status");
+
+      function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = "status " + cls;
+      }
+
+      setStatus("running…", "status-running");
+      const src = new EventSource("/runs/stream/{{ run_id }}");
+      src.onmessage = (evt) => {
+        const data = JSON.parse(evt.data);
+        if ("line" in data) {
+          consoleEl.textContent += data.line + "\n";
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        if (data.done) {
+          src.close();
+          // Exit codes (TDD §9): 0 ok, 2 a gate blocked the run (visibly
+          // distinct from success, not a silent pass), anything else failed.
+          if (data.exit_code === 0) {
+            setStatus("passed (exit 0)", "status-ok");
+          } else if (data.exit_code === 2) {
+            setStatus("gate blocked (exit 2)", "status-gate-blocked");
+          } else {
+            setStatus(`failed (exit ${data.exit_code})`, "status-fail");
+          }
+        }
+      };
+      src.onerror = () => {
+        src.close();
+      };
+    </script>
+  {% endif %}
+{% endblock %}

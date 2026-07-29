@@ -2,9 +2,10 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-18 (Project dashboard):
-`gui/routes/dashboard.py` (`/` and `/projects/<slug>`), `dashboard.html`,
-`project_detail.html`. Same day as WP-17.
+**Last session:** 2026-07-28 — completed WP-19 (Pipeline run/log console):
+`gui/routes/runs.py` (`/runs` picker + recent-runs list, `/runs/<run-id>`
+console, `/runs/stream/<run-id>` SSE), `runs.html`, `run_detail.html`. Same
+day as WP-17/WP-18.
 
 ---
 
@@ -43,8 +44,8 @@
 | WP-16 | Trend sweep | ✅ done | 460 tests passing (12 new), 1 skipped (`EXPECTED_WP` in `test_cli.py` is now empty -- every stub is built); no new doctor entry, neither source needs auth |
 | WP-17 | GUI scaffold, process runner, doctor screen | ✅ done | 473 tests passing (13 new), 1 skipped (pre-existing); new `gui` optional-dependency group (`fastapi`, `uvicorn`); no new `doctor.py` entry |
 | WP-18 | Project dashboard | ✅ done | 477 tests passing (4 new), 1 skipped (pre-existing); no new `doctor.py` entry (read-only screen, no new dependency) |
-| WP-19 | Pipeline run/log console | 🔵 next | |
-| WP-20 | Brief review & selection | ⬜ | |
+| WP-19 | Pipeline run/log console | ✅ done | 487 tests passing (9 new), 1 skipped (pre-existing); no new `doctor.py` entry (subprocess console, no new dependency) |
+| WP-20 | Brief review & selection | 🔵 next | |
 | WP-21 | Article & grade review | ⬜ | |
 | WP-22 | Rendition editing & package preview | ⬜ | |
 
@@ -55,6 +56,44 @@
 
 ## Deviations from the TDD
 
+- **WP-19 · `/runs` is a fixed picker over a hardcoded `_COMMANDS` list
+  (`gui/routes/runs.py`), not a fully dynamic reflection of every §9
+  command's real Typer signature.** The Build line says "pick any §9 stage
+  command for a project/piece id" — every stage command from `doctor`
+  through `cost` is represented, but each entry is (command key, argv
+  prefix, one free-text "argument" slot, confirm flag); optional flags
+  (`--force`, `--dry-run`, `--platform`, ...) go through a single free-text
+  "extra flags" field parsed with `shlex.split` rather than per-flag form
+  controls. `ce project new`/`ce capture *` are deliberately left off the
+  list — they're one-time authoring actions with their own future screens
+  (WP-20+), not pipeline stages you'd re-run from a log console. Consistent
+  with the "the GUI never reimplements CLI logic" rule (§10.10): argument
+  validation is left entirely to the real CLI subprocess, surfaced through
+  its own streamed output, not re-validated here.
+- **WP-19 · the confirm gate (`_Command.confirm`) is scoped to exactly one
+  command, `publish-site`.** TDD's Build line says "`ce publish site`,
+  anything that ends in `git push`" — grepped the whole `src/ce` tree for
+  `git push`/`"push"` this session and the only hit is
+  `publish/site.py`'s own call; no other §9 command reaches outside this
+  machine, so there was nothing else to gate.
+- **WP-19 · `/runs/<run-id>` falls back to reading the log file statically
+  (no live exit code) when `runner._runs` no longer has the run's handle in
+  memory** (e.g. the GUI process was restarted since that run finished).
+  ADR-009 says `ce gui` is deliberately not a daemon, so there is no
+  `Popen` left anywhere to poll an exit code from once the process that
+  launched it is gone — this reads the same log file every other run's
+  live view tails, just without a stream to reconnect to. Not itself named
+  in the Done-when line (which is about a closed *browser tab*, not a
+  restarted *GUI process*), but the natural edge case once `/runs/<run-id>`
+  is a bookmarkable/reloadable URL rather than only a live SSE view.
+- **WP-19 · `/runs/start` accepts a JSON body (`_RunRequest` Pydantic
+  model), not `multipart/form-data`.** FastAPI's `Form(...)` parameter
+  style needs `python-multipart` installed, which isn't currently a
+  dependency of the `gui` extra (`pyproject.toml`) or anywhere else in this
+  repo; a JSON body needs no new package. `runs.html`'s form submit handler
+  posts `JSON.stringify(...)` with an explicit `Content-Type` header
+  instead of handing the browser's native form-encoded body straight to
+  `fetch`.
 - **WP-18 · "not harvested" is `git.json` absent AND `research.json` absent AND
   `inventory.md` absent, not a single canonical flag.** TDD 10.10's Screens
   table just says `/projects/<slug>` reads "project + capture/harvest/piece

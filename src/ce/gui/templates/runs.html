@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Runs - Content Engine{% endblock %}
+{% block content %}
+  <h1>Pipeline run console</h1>
+  <p>Pick any pipeline stage command and run it as a real <code>ce</code> subprocess.</p>
+
+  <form id="run-form">
+    <p>
+      <label for="command">Command</label><br>
+      <select id="command" name="command">
+        {% for cmd in commands %}
+          <option value="{{ cmd.key }}" data-confirm="{{ cmd.confirm | lower }}"
+                  data-hint="{{ cmd.arg_hint or '' }}">{{ cmd.label }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="argument" id="argument-label">Argument</label><br>
+      <input type="text" id="argument" name="argument" placeholder="e.g. my-project">
+    </p>
+    <p>
+      <label for="extra">Extra flags (optional, e.g. <code>--force --dry-run</code>)</label><br>
+      <input type="text" id="extra" name="extra">
+    </p>
+    <p id="confirm-row" style="display:none;">
+      <label>
+        <input type="checkbox" id="confirm" name="confirm">
+        This action reaches outside this machine (e.g. a <code>git push</code>). I want to proceed.
+      </label>
+    </p>
+    <p>
+      <button type="submit" id="submit-btn">Run</button>
+      <span id="error" style="color: #c33;"></span>
+    </p>
+  </form>
+
+  <h2>Recent runs</h2>
+  {% if not recent_runs %}
+    <p class="empty-state">No runs yet.</p>
+  {% else %}
+    <table>
+      <thead><tr><th>Run</th><th>Command</th></tr></thead>
+      <tbody>
+        {% for run in recent_runs %}
+          <tr>
+            <td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+            <td>{{ run.command }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <script>
+    const select = document.getElementById("command");
+    const argLabel = document.getElementById("argument-label");
+    const argInput = document.getElementById("argument");
+    const confirmRow = document.getElementById("confirm-row");
+    const confirmBox = document.getElementById("confirm");
+    const submitBtn = document.getElementById("submit-btn");
+    const errorEl = document.getElementById("error");
+
+    function selectedNeedsConfirm() {
+      return select.options[select.selectedIndex].dataset.confirm === "true";
+    }
+
+    function syncForm() {
+      const opt = select.options[select.selectedIndex];
+      argLabel.textContent = opt.dataset.hint ? `Argument (${opt.dataset.hint})` : "Argument (not used by this command)";
+      argInput.disabled = !opt.dataset.hint;
+      confirmRow.style.display = selectedNeedsConfirm() ? "block" : "none";
+      // Disabled until the operator explicitly checks the box -- this is
+      // what stops `ce publish site` from being submitted without it
+      // (WP-19's Done-when line), enforced again server-side in /runs/start.
+      submitBtn.disabled = selectedNeedsConfirm() && !confirmBox.checked;
+    }
+
+    select.addEventListener("change", syncForm);
+    confirmBox.addEventListener("change", syncForm);
+    syncForm();
+
+    document.getElementById("run-form").addEventListener("submit", (evt) => {
+      evt.preventDefault();
+      errorEl.textContent = "";
+      const body = JSON.stringify({
+        command: select.value,
+        argument: argInput.value,
+        extra: document.getElementById("extra").value,
+        confirm: confirmBox.checked,
+      });
+      fetch("/runs/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            const detail = await r.json().catch(() => ({}));
+            throw new Error(detail.detail || "could not start run");
+          }
+          return r.json();
+        })
+        .then((data) => {
+          window.location.href = `/runs/${data.run_id}`;
+        })
+        .catch((err) => {
+          errorEl.textContent = err.message;
+        });
+    });
+  </script>
+{% endblock %}
