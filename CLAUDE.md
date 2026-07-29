@@ -30,8 +30,18 @@ One WP per session. Do not start a new WP until the current one's acceptance cri
 - **G1** repo allowlist (`config/engine.yml`) — a repo not listed is invisible to the pipeline.
 - **G2** secret scan (gitleaks + path deny-list) — raw diffs never go to an LLM, only commit messages/paths/line counts.
 
+## Before `ce publish site`
+
+Run the `pre-publish-review` skill first (dispatches the `content-editor` agent against the piece's
+`article.md`). This checks voice against the site repo's own `brand-brief.md`/`docs/design/voice-guide.md`
+directly — a more specific, example-driven check than this repo's own `produce.grade_weights.voice`
+LLM grading. It's an addition to ADR-008's edit-check and `ce verify`'s claim gate (G4), not a
+replacement for either. `content-editor` here is a manually-synced mirror of the site repo's own copy
+— see the note at the top of `.claude/agents/content-editor.md` if the checklist ever needs updating.
+
 ## Key docs (read only what's needed, not the whole set every session)
 
 - `docs/TDD-content-engine.md` — spec; work packages are in §12
 - `STATUS.md` — current progress, next WP, deviations log
-- `config/brand-brief.md` — must be hand-filled before WP-08
+- `config/brand-brief.md` — must be hand-filled before WP-08 (this repo's own copy, used for this
+  repo's LLM prompts — `pre-publish-review`'s check reads the site repo's copy directly instead)
