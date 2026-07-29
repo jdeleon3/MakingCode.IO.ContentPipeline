@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ce.gui import runner
+from ce.gui.routes import assets as assets_routes
 from ce.gui.routes import briefs as briefs_routes
 from ce.gui.routes import dashboard as dashboard_routes
 from ce.gui.routes import doctor as doctor_routes
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(briefs_routes.router)
     app.include_router(pieces_routes.router)
     app.include_router(renditions_routes.router)
+    app.include_router(assets_routes.router)
 
     return app
 

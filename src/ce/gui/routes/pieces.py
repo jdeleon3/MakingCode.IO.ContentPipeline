@@ -62,6 +62,39 @@ def _read_json(path: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _list_staged_inputs(data_root: Path, slug: str, piece_id: str) -> dict:
+    """What's currently staged for `ce assets` to pick up -- the input side
+    `gui/routes/assets.py` writes to, read back here for display. A plain
+    directory listing, not an import of `assets/__init__.py`'s own
+    resolution logic (§10.10's hard rule): the two just happen to agree on
+    where these four inputs live, the same way `renditions.py`'s asset
+    listing already agrees with `assets/__init__.py`'s *output* filenames.
+    """
+    piece_root = store.piece_dir(data_root, slug, piece_id)
+    assets_dir = piece_root / "assets"
+    evidence_dir = piece_root / "evidence"
+    diagrams_dir = assets_dir / "diagrams"
+
+    def _first(base: Path, glob_pattern: str) -> str | None:
+        if not base.exists():
+            return None
+        matches = sorted(p.name for p in base.glob(glob_pattern))
+        return matches[0] if matches else None
+
+    return {
+        "hero": _first(assets_dir, "hero-source.*"),
+        "thumbnail_bg": _first(assets_dir, "thumbnail-bg.*"),
+        "evidence": (
+            sorted(p.name for p in evidence_dir.iterdir() if p.is_file())
+            if evidence_dir.exists()
+            else []
+        ),
+        "diagrams": (
+            sorted(p.name for p in diagrams_dir.glob("*.mmd")) if diagrams_dir.exists() else []
+        ),
+    }
+
+
 @router.get("/pieces/{piece_id}")
 def piece_detail(request: Request, piece_id: str) -> HTMLResponse:
     data_root = Path("data")
@@ -76,6 +109,8 @@ def piece_detail(request: Request, piece_id: str) -> HTMLResponse:
     verification = _read_json(store.verification_json_path(data_root, project.slug, piece.id))
     claims = verification["claims"] if verification else []
 
+    staged = _list_staged_inputs(data_root, project.slug, piece.id)
+
     templates = request.app.state.templates
     return templates.TemplateResponse(
         request,
@@ -86,6 +121,7 @@ def piece_detail(request: Request, piece_id: str) -> HTMLResponse:
             "article_text": article_text,
             "attempts": attempts,
             "claims": claims,
+            "staged": staged,
         },
     )
 

@@ -111,6 +111,80 @@
     <span id="run-error" style="color: #c33;"></span>
   </p>
 
+  <h2>Stage assets</h2>
+  <p class="empty-state">
+    Manual inputs <code>ce assets</code> reads before rendering -- nothing
+    here is generated automatically.
+  </p>
+
+  <h3>Hero image</h3>
+  {% if staged.hero %}
+    <p><code>{{ staged.hero }}</code>
+      <button class="unstage-btn" data-kind="hero" data-filename="{{ staged.hero }}">Remove</button></p>
+  {% else %}
+    <p class="empty-state">Not staged.</p>
+  {% endif %}
+  <p>
+    <input type="file" id="hero-file" accept=".png,.jpg,.jpeg,.webp">
+    <button class="stage-btn" data-kind="hero" data-input="hero-file">Upload</button>
+  </p>
+
+  <h3>Thumbnail background</h3>
+  {% if staged.thumbnail_bg %}
+    <p><code>{{ staged.thumbnail_bg }}</code>
+      <button class="unstage-btn" data-kind="thumbnail_bg" data-filename="{{ staged.thumbnail_bg }}">Remove</button></p>
+  {% else %}
+    <p class="empty-state">Not staged.</p>
+  {% endif %}
+  <p>
+    <input type="file" id="thumbnail_bg-file" accept=".png,.jpg,.jpeg,.webp,.gif">
+    <button class="stage-btn" data-kind="thumbnail_bg" data-input="thumbnail_bg-file">Upload</button>
+  </p>
+
+  <h3>Evidence snippets</h3>
+  {% if not staged.evidence %}
+    <p class="empty-state">None staged.</p>
+  {% else %}
+    <ul>
+      {% for name in staged.evidence %}
+        <li><code>{{ name }}</code>
+          <button class="unstage-btn" data-kind="evidence" data-filename="{{ name }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <p>
+    <input type="file" id="evidence-file">
+    <button class="stage-btn" data-kind="evidence" data-input="evidence-file">Upload</button>
+  </p>
+  <p>or paste one directly:</p>
+  <p>
+    <input type="text" id="evidence-paste-filename" placeholder="filename, e.g. fix.py" style="width: 240px;">
+  </p>
+  <p>
+    <textarea id="evidence-paste-content" rows="8" style="width:100%; font-family: monospace;"
+      placeholder="paste the snippet here"></textarea>
+  </p>
+  <p>
+    <button id="evidence-paste-btn">Save snippet</button>
+  </p>
+
+  <h3>Diagrams</h3>
+  {% if not staged.diagrams %}
+    <p class="empty-state">None staged.</p>
+  {% else %}
+    <ul>
+      {% for name in staged.diagrams %}
+        <li><code>{{ name }}</code>
+          <button class="unstage-btn" data-kind="diagram" data-filename="{{ name }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <p>
+    <input type="file" id="diagram-file" accept=".mmd">
+    <button class="stage-btn" data-kind="diagram" data-input="diagram-file">Upload</button>
+  </p>
+  <p><span id="stage-error" style="color: #c33;"></span></p>
+
   <script>
     {% if article_text is not none %}
     // Saving writes straight to `article.md` at its normal path (the route
@@ -162,6 +236,74 @@
             btn.disabled = false;
           });
       });
+    });
+
+    // Stage-assets section: upload / paste / remove. Every action reloads
+    // the whole page on success rather than patching the DOM in place --
+    // same "navigate/reload after a deliberate action" shape the run
+    // buttons above already use on this exact page.
+    const stageErrorEl = document.getElementById("stage-error");
+
+    function handleStageResponse(fetchPromise) {
+      fetchPromise
+        .then(async (r) => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(data.detail || "request failed");
+          window.location.reload();
+        })
+        .catch((err) => {
+          stageErrorEl.textContent = err.message;
+        });
+    }
+
+    document.querySelectorAll(".stage-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        stageErrorEl.textContent = "";
+        const input = document.getElementById(btn.dataset.input);
+        if (!input.files.length) {
+          stageErrorEl.textContent = "choose a file first";
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", input.files[0]);
+        handleStageResponse(
+          fetch(`/pieces/{{ piece.id }}/assets/stage/${btn.dataset.kind}`, {
+            method: "POST",
+            body: formData,
+          })
+        );
+      });
+    });
+
+    document.querySelectorAll(".unstage-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        stageErrorEl.textContent = "";
+        handleStageResponse(
+          fetch(`/pieces/{{ piece.id }}/assets/unstage/${btn.dataset.kind}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: btn.dataset.filename }),
+          })
+        );
+      });
+    });
+
+    const evidencePasteBtn = document.getElementById("evidence-paste-btn");
+    evidencePasteBtn.addEventListener("click", () => {
+      stageErrorEl.textContent = "";
+      const filename = document.getElementById("evidence-paste-filename").value.trim();
+      const content = document.getElementById("evidence-paste-content").value;
+      if (!filename) {
+        stageErrorEl.textContent = "give the snippet a filename first";
+        return;
+      }
+      handleStageResponse(
+        fetch(`/pieces/{{ piece.id }}/assets/stage-text/evidence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename, content }),
+        })
+      );
     });
   </script>
 {% endblock %}

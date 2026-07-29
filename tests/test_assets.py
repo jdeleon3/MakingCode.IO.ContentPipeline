@@ -248,6 +248,47 @@ def test_thumbnail_render_without_background_omits_bg_image():
     assert "data:image" not in call["html"]
 
 
+def test_thumbnail_render_embeds_explicit_logo_as_data_uri(tmp_path):
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    renderer = FakeScreenshotRenderer()
+
+    thumbnail.render(
+        "My Title", tmp_path / "thumb.png", renderer=renderer, logo_image_path=logo_path
+    )
+
+    [call] = renderer.calls
+    assert 'class="logo"' in call["html"]
+    assert "data:image/png;base64," in call["html"]
+
+
+def test_thumbnail_render_without_a_logo_omits_the_logo_image(tmp_path):
+    """No `logo_image_path` given and no `config/brand-logo.*` staged (this
+    repo's real config/ dir has none) -- the logo is optional, same as the
+    background image."""
+    renderer = FakeScreenshotRenderer()
+
+    thumbnail.render("My Title", tmp_path / "thumb.png", renderer=renderer)
+
+    [call] = renderer.calls
+    assert 'class="logo"' not in call["html"]
+
+
+def test_thumbnail_render_finds_a_default_logo_in_config_dir(tmp_path, monkeypatch):
+    """The project-wide (not per-piece) `config/brand-logo.<ext>` convention
+    -- resolved automatically with no caller wiring, same as brand_css_path."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "brand-logo.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    monkeypatch.chdir(tmp_path)
+    renderer = FakeScreenshotRenderer()
+
+    thumbnail.render("My Title", tmp_path / "thumb.png", renderer=renderer)
+
+    [call] = renderer.calls
+    assert 'class="logo"' in call["html"]
+
+
 # ---------------------------------------------------------------------------
 # assets/__init__.py -- generate() orchestration
 # ---------------------------------------------------------------------------

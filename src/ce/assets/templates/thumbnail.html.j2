@@ -40,11 +40,20 @@ body {
   line-height: 1.15;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
 }
+.logo {
+  position: absolute;
+  top: 40px;
+  right: 40px;
+  height: 56px;
+  width: auto;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55));
+}
 </style>
 </head>
 <body>
 {% if background_data_uri %}<img class="bg" src="{{ background_data_uri }}">{% endif %}
 <div class="scrim"></div>
+{% if logo_data_uri %}<img class="logo" src="{{ logo_data_uri }}">{% endif %}
 <div class="title">{{ title }}</div>
 </body>
 </html>

@@ -84,6 +84,61 @@ WP-17–WP-21.
 
 ## Deviations from the TDD
 
+- **2026-07-29, `gui/routes/assets.py` (new, post-WP-22) · the GUI can now
+  stage `ce assets`' four hand-placed inputs (hero image, thumbnail
+  background, evidence snippets, Mermaid diagrams) through the browser, on
+  the existing `/pieces/<id>` page.** Operator-requested, not TDD-driven —
+  before this, "Stage assets" was the one manual pipeline step with zero GUI
+  surface (confirmed by walking `docs/workflow-infographic.html`, built
+  earlier this session), even though staging doesn't depend on
+  `produce`/`verify` finishing and is available the moment a piece exists.
+  New `python-multipart` dependency in the `gui` extra (`UploadFile`/
+  `File(...)` needs it to parse `multipart/form-data`; no other GUI route
+  had needed it before — WP-19's own deviation log already flagged this gap
+  when `/runs/start` deliberately avoided it by using a JSON body instead).
+  `gui/routes/assets.py` is split out from `pieces.py` the same way
+  `renditions.py` (WP-22) already is, reusing `pieces.py::find_piece_or_404`
+  the same one-directional way `renditions.py` does — `pieces.py` never
+  imports from the new module, so there's no import cycle.
+  `hero`/`thumbnail_bg` are **singleton** kinds (staging a new one deletes
+  whatever was there — `assets/hero-source.*` / `assets/thumbnail-bg.*` only
+  ever has one match, same invariant `assets/__init__.py`'s own resolution
+  already assumes); `evidence`/`diagram` are **multi-file** (add or
+  overwrite-by-name, never touch siblings). Extension allow-lists are
+  duplicated from `assets/__init__.py::_HERO_EXTENSIONS` /
+  `thumbnail.py::_MIME_BY_EXTENSION`, not imported — §10.10's hard rule
+  forbids the GUI importing `assets/` at all, same "a plain, hardcoded,
+  mirrored list" shape `renditions.py::_PLATFORMS` already uses. Per the
+  operator's own request, `evidence` also supports **paste-to-create** (a
+  filename + textarea, `POST .../assets/stage-text/evidence`) alongside
+  file upload — both go through one shared `_write_staged_file` helper so a
+  pasted snippet is byte-for-byte what an uploaded file with the same
+  content would have been. `stage-text` is kind-parameterized (works for
+  `diagram` too, since a `.mmd` file is equally hand-typed text) but only
+  wired into the `evidence` section of `pieces.html` in this pass — flagged
+  as a likely next ask rather than built speculatively for `diagram` now.
+
+- **2026-07-29, `assets/thumbnail.py` (post-WP-11) · thumbnails now support
+  an optional brand-logo watermark, auto-detected from `config/brand-logo.<ext>`.**
+  Operator-requested, not TDD-driven — `thumbnail.png` is used exactly once
+  downstream (`package/builder.py`'s YouTube section of `REVIEW.html`), so a
+  consistent channel mark on it is a real branding win with no other call
+  site to keep in sync. Project-wide, not staged per piece like
+  `thumbnail-bg`/`hero-source` (one logo for every piece), so it's resolved
+  as a default inside `thumbnail.render()` itself (`_find_default_logo()`,
+  globs `config/brand-logo.*` restricted to known image extensions) rather
+  than by the `assets/__init__.py` caller — no wiring needed there, same
+  shape as `brand_css_path`'s existing default. Absent file is a normal,
+  silent no-watermark render, not an error, matching every other optional
+  asset input's "missing input for one kind is a no-op" convention. Rendered
+  top-right (the title/scrim occupy the bottom 55%, so there's no collision
+  either way), sized to 56px tall with a drop-shadow for legibility over a
+  varying background, same treatment the title text already gets. No actual
+  logo file exists at `config/brand-logo.<ext>` yet on this machine — the
+  code path is built and tested (`tests/test_assets.py`) against a fake one;
+  drop a real file there whenever one exists and every future thumbnail
+  picks it up automatically.
+
 - **2026-07-29, cross-cutting (post-WP-22) · research is now also run
   brief-scoped, at `ce brief select` time, in addition to the existing
   project-wide pass at `ce harvest` time.** Not a TDD-driven WP — an

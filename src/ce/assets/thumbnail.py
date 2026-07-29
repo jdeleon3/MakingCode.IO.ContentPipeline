@@ -1,5 +1,5 @@
-"""Title (+ optional background screenshot) -> 1280x720 PNG thumbnail via
-Jinja HTML + Playwright (TDD 10.7).
+"""Title (+ optional background screenshot + optional brand logo) -> 1280x720
+PNG thumbnail via Jinja HTML + Playwright (TDD 10.7).
 
 Reuses `codecard.py`'s `ScreenshotRenderer` Protocol/real implementation
 rather than redefining an identical one — both modules do the same
@@ -24,6 +24,8 @@ from ce.assets.codecard import DEVICE_SCALE_FACTOR, ScreenshotRenderer
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _DEFAULT_BRAND_CSS_PATH = Path("config/brand.css")
+_DEFAULT_LOGO_DIR = Path("config")
+_LOGO_STEM = "brand-logo"
 
 WIDTH = 1280  # TDD 10.7: "1280x720"
 HEIGHT = 720
@@ -48,12 +50,27 @@ def _data_uri(path: Path) -> str | None:
     return f"data:{mime};base64,{encoded}"
 
 
+def _find_default_logo(config_dir: Path = _DEFAULT_LOGO_DIR) -> Path | None:
+    """Best-effort `config/brand-logo.<ext>` lookup -- same "optional,
+    hand-placed, absent is normal" convention as `thumbnail-bg`/
+    `hero-source` (`assets/__init__.py`), except this one is project-wide
+    (one logo for every piece) rather than staged per piece, so it's
+    resolved here as a default rather than by the caller."""
+    if not config_dir.exists():
+        return None
+    candidates = sorted(
+        p for p in config_dir.glob(f"{_LOGO_STEM}.*") if p.suffix.lower() in _MIME_BY_EXTENSION
+    )
+    return candidates[0] if candidates else None
+
+
 def render(
     title: str,
     output_path: Path,
     *,
     renderer: ScreenshotRenderer,
     background_image_path: Path | None = None,
+    logo_image_path: Path | None = None,
     templates_dir: Path = _TEMPLATES_DIR,
     brand_css_path: Path = _DEFAULT_BRAND_CSS_PATH,
 ) -> None:
@@ -61,12 +78,18 @@ def render(
     if background_image_path is not None and background_image_path.exists():
         background_data_uri = _data_uri(background_image_path)
 
+    logo_path = logo_image_path if logo_image_path is not None else _find_default_logo()
+    logo_data_uri = None
+    if logo_path is not None and logo_path.exists():
+        logo_data_uri = _data_uri(logo_path)
+
     html = render_html(
         "thumbnail.html.j2",
         templates_dir=templates_dir,
         brand_css_path=brand_css_path,
         title=title,
         background_data_uri=background_data_uri,
+        logo_data_uri=logo_data_uri,
     )
     renderer.screenshot_html(
         html, output_path, width=WIDTH, height=HEIGHT, device_scale_factor=DEVICE_SCALE_FACTOR
