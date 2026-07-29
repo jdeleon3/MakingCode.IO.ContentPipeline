@@ -315,10 +315,12 @@ def harvest(
         research_harvest = research_module.research(
             query,
             gateway=gateway,
-            harvest_dir=harvest_dir,
+            output_path=harvest_dir / "research.json",
             max_sources=config.harvest.research.max_sources,
             search_client=search_client,
         )
+        if not research_harvest.sources:
+            console.warn("research: search returned zero sources -- harvest/research.json is empty")
 
     dedupe_conn = index_module.connect(data_root / "index.db")
     try:
@@ -380,12 +382,52 @@ def brief_list(
 
 
 @brief_app.command("select")
-def brief_select(brief_id: str = typer.Argument(..., help="e.g. br-01")) -> None:
-    """Promote a brief to a piece. Refuses briefs with weak grounding."""
+def brief_select(
+    brief_id: str = typer.Argument(..., help="e.g. br-01"),
+    skip_research: bool = typer.Option(
+        False, "--skip-research", help="Don't run this brief's research pass."
+    ),
+) -> None:
+    """Promote a brief to a piece, then research its specific angle.
+
+    Refuses briefs with weak grounding. The research pass is scoped to this
+    one brief's title/angle -- distinct from (and in addition to) the
+    project-wide research `ce harvest` already ran.
+    """
+    from ce import store
+    from ce.config import load_engine_config
+    from ce.harvest import research as research_module
+    from ce.llm.gateway import Gateway
     from ce.produce import writer
 
-    piece = writer.select_brief(brief_id, data_root=Path("data"))
+    data_root = Path("data")
+    config = load_engine_config()
+    gateway = Gateway(config, data_root=data_root)
+    search_client = (
+        None
+        if skip_research
+        else research_module.build_search_client(config.harvest.research.provider)
+    )
+
+    piece = writer.select_brief(
+        brief_id,
+        data_root=data_root,
+        gateway=gateway,
+        max_sources=config.harvest.research.max_sources,
+        search_client=search_client,
+        skip_research=skip_research,
+    )
     console.success(f"selected {brief_id} -> piece {piece.id}")
+
+    if not skip_research:
+        piece_research = research_module.read_research_harvest(
+            store.research_json_path(data_root, piece.project, piece.id)
+        )
+        if not piece_research.sources:
+            console.warn(
+                f"research: search returned zero sources for {piece.id} -- "
+                f"pieces/{piece.id}/research.json is empty"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +483,10 @@ def produce(
         data_root=data_root,
         gateway=gateway,
         git_harvest=git_harvest_module.read_git_harvest(harvest_dir),
-        research_harvest=research_module.read_research_harvest(harvest_dir),
+        research_harvest=research_module.read_research_harvest(harvest_dir / "research.json"),
+        piece_research_harvest=research_module.read_research_harvest(
+            store.research_json_path(data_root, project.slug, piece.id)
+        ),
         min_grade=config.produce.min_grade,
         max_attempts=config.produce.max_attempts,
         grade_weights=config.produce.grade_weights,
@@ -508,7 +553,10 @@ def verify(
         data_root=data_root,
         gateway=gateway,
         git_harvest=git_harvest_module.read_git_harvest(harvest_dir),
-        research_harvest=research_module.read_research_harvest(harvest_dir),
+        research_harvest=research_module.read_research_harvest(harvest_dir / "research.json"),
+        piece_research_harvest=research_module.read_research_harvest(
+            store.research_json_path(data_root, project.slug, piece.id)
+        ),
         search_client=research_module.build_search_client(config.harvest.research.provider),
         fetch_client=research_module.HttpFetchClient(),
     )

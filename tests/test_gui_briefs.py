@@ -31,6 +31,52 @@ from ce.models import (  # noqa: E402
     Project,
 )
 
+_MINIMAL_ENGINE_YML = """
+identity:
+  name: John
+  site_url: https://example.com
+  site_repo: ~/code/site
+  timezone: America/New_York
+repos:
+  allowed: []
+llm:
+  provider: anthropic
+  models: {reasoning: claude-opus-5, default: claude-sonnet-5, cheap: claude-haiku-4-5}
+  budget: {monthly_usd: 20, per_run_usd: 2.0, on_exceed: halt}
+  retry: {max_attempts: 4, backoff_base_sec: 2}
+transcription:
+  provider: openai
+  model: gpt-4o-mini-transcribe
+  vocabulary: []
+  preprocess: {silence_threshold_db: -40, silence_min_sec: 1.5, loudnorm: true}
+embeddings: {provider: openai, model: text-embedding-3-small}
+gates:
+  allowlist: hard_fail
+  secrets: hard_fail
+  dedupe: {threshold: 0.88, scope_days: 365}
+  claims: {enabled: true, block_on_unverifiable: true}
+produce:
+  min_grade: 8.0
+  max_attempts: 3
+  grade_weights: {hook: 0.3, evidence: 0.3, specificity: 0.2, voice: 0.1, cta: 0.1}
+harvest:
+  git: {lookback_days: 60, min_significance: 2}
+  research: {max_sources: 8}
+  inventory: {min_briefs: 6, max_briefs: 8}
+utm:
+  template: "?utm_source={platform}&utm_medium=social&utm_campaign={slug}"
+analytics:
+  umami: {api_url: "https://umami.example.com", website_id: "site-1"}
+sweep:
+  topics: [DuckDB]
+  rss_feeds: []
+"""
+
+
+def _write_minimal_engine_config(root: Path) -> None:
+    (root / "config").mkdir(exist_ok=True)
+    (root / "config" / "engine.yml").write_text(_MINIMAL_ENGINE_YML, encoding="utf-8")
+
 
 def _project(slug: str) -> Project:
     return Project(slug=slug, title=f"Title for {slug}", started_at=date(2026, 7, 1))
@@ -124,7 +170,8 @@ def test_dropped_brief_select_control_is_disabled_in_the_ui(client):
     assert br01_pos >= 0
 
 
-def test_selecting_a_candidate_creates_a_piece_and_returns_its_id(client):
+def test_selecting_a_candidate_creates_a_piece_and_returns_its_id(client, tmp_path):
+    _write_minimal_engine_config(tmp_path)
     data_root = Path("data")
     store.write_project(data_root, _project("proj"))
     store.scaffold_project_tree(data_root, "proj")

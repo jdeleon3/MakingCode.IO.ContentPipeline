@@ -124,7 +124,7 @@ def test_returns_at_least_three_usable_sources_despite_a_fetch_failure(
     harvest = research(
         "DuckDB replaces Spark for <100GB workloads",
         gateway=gateway,
-        harvest_dir=tmp_path / "harvest",
+        output_path=tmp_path / "harvest" / "research.json",
         max_sources=8,
         search_client=search_client,
         fetch_client=fetch_client,
@@ -157,7 +157,7 @@ def test_fetch_failure_does_not_abort_the_run(tmp_path, make_engine_config):
     harvest = research(
         "some topic",
         gateway=gateway,
-        harvest_dir=tmp_path / "harvest",
+        output_path=tmp_path / "harvest" / "research.json",
         max_sources=8,
         search_client=search_client,
         fetch_client=fetch_client,
@@ -180,7 +180,7 @@ def test_stops_once_max_sources_reached(tmp_path, make_engine_config):
     harvest = research(
         "some topic",
         gateway=gateway,
-        harvest_dir=tmp_path / "harvest",
+        output_path=tmp_path / "harvest" / "research.json",
         max_sources=2,
         search_client=search_client,
         fetch_client=fetch_client,
@@ -201,7 +201,7 @@ def test_all_fetches_failing_yields_an_empty_but_valid_harvest(tmp_path, make_en
     harvest = research(
         "some topic",
         gateway=gateway,
-        harvest_dir=tmp_path / "harvest",
+        output_path=tmp_path / "harvest" / "research.json",
         max_sources=8,
         search_client=search_client,
         fetch_client=fetch_client,
@@ -226,7 +226,7 @@ def test_writes_research_json_with_expected_shape(tmp_path, make_engine_config):
     research(
         "some topic",
         gateway=gateway,
-        harvest_dir=harvest_dir,
+        output_path=harvest_dir / "research.json",
         max_sources=8,
         search_client=search_client,
         fetch_client=fetch_client,
@@ -250,7 +250,7 @@ def test_search_is_overfetched_beyond_max_sources_to_survive_dedupe_and_failures
     research(
         "some topic",
         gateway=gateway,
-        harvest_dir=tmp_path / "harvest",
+        output_path=tmp_path / "harvest" / "research.json",
         max_sources=2,
         search_client=search_client,
         fetch_client=fetch_client,

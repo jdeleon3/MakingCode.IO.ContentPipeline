@@ -16,8 +16,9 @@ import pytest
 
 from ce import store
 from ce.exit_codes import CEError, InventoryError
+from ce.harvest import research as research_module
 from ce.harvest.git import CommitRecord, GitHarvest, RedactionSummary, RepoHarvest
-from ce.harvest.research import ResearchHarvest, ResearchSource, Stance
+from ce.harvest.research import ResearchHarvest, ResearchSource, SearchResult, Stance
 from ce.llm.gateway import Gateway, ProviderResponse
 from ce.models import (
     Brief,
@@ -106,6 +107,24 @@ class FakeLLMClient:
         return ProviderResponse(content=self._contents.pop(0), in_tokens=100, out_tokens=200)
 
 
+class _FakeSelectBriefSearchClient:
+    def __init__(self, results: list[SearchResult]):
+        self._results = results
+        self.calls: list[tuple[str, int]] = []
+
+    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        self.calls.append((query, max_results))
+        return self._results[:max_results]
+
+
+class _FakeSelectBriefFetchClient:
+    def __init__(self, content_by_url: dict[str, str | None]):
+        self._content = content_by_url
+
+    def fetch(self, url: str) -> str | None:
+        return self._content.get(url)
+
+
 def _gateway(
     tmp_path: Path, make_engine_config, contents: list[str]
 ) -> tuple[Gateway, FakeLLMClient]:
@@ -165,12 +184,20 @@ def _voice_settings(fake_embeddings_client, tmp_path: Path) -> writer.VoiceRagSe
 # ---------------------------------------------------------------------------
 
 
-def test_select_brief_creates_a_piece_and_marks_the_brief_selected(tmp_path):
+def test_select_brief_creates_a_piece_and_marks_the_brief_selected(tmp_path, make_engine_config):
     project = _project()
     store.write_project(tmp_path / "data", project)
     store.write_briefs(tmp_path / "data", project.slug, [_brief()])
+    gateway, _ = _gateway(tmp_path, make_engine_config, contents=[])
 
-    piece = writer.select_brief("br-01", data_root=tmp_path / "data", now=NOW)
+    piece = writer.select_brief(
+        "br-01",
+        data_root=tmp_path / "data",
+        gateway=gateway,
+        max_sources=8,
+        skip_research=True,
+        now=NOW,
+    )
 
     assert piece.id == "pc-0001"
     assert piece.brief_id == "br-01"
@@ -185,18 +212,61 @@ def test_select_brief_creates_a_piece_and_marks_the_brief_selected(tmp_path):
     assert reloaded_brief.status == BriefStatus.SELECTED
 
 
-def test_select_brief_refuses_a_dropped_brief(tmp_path):
+def test_select_brief_runs_brief_scoped_research(tmp_path, make_engine_config):
+    """The new behavior: selection also researches this brief's own
+    title/angle, writing a piece-scoped research.json distinct from the
+    project-wide harvest one."""
+    project = _project()
+    store.write_project(tmp_path / "data", project)
+    store.write_briefs(tmp_path / "data", project.slug, [_brief()])
+    gateway, _ = _gateway(
+        tmp_path,
+        make_engine_config,
+        contents=[json.dumps({"stance": "supports", "summary": "Confirms the memory limit."})],
+    )
+    search_client = _FakeSelectBriefSearchClient(
+        [SearchResult(url="https://a.example.com/1", title="A")]
+    )
+    fetch_client = _FakeSelectBriefFetchClient({"https://a.example.com/1": "Some content."})
+
+    piece = writer.select_brief(
+        "br-01",
+        data_root=tmp_path / "data",
+        gateway=gateway,
+        max_sources=8,
+        search_client=search_client,
+        fetch_client=fetch_client,
+        now=NOW,
+    )
+
+    research_path = store.research_json_path(tmp_path / "data", project.slug, piece.id)
+    assert research_path.exists()
+    harvest = research_module.read_research_harvest(research_path)
+    assert [s.url for s in harvest.sources] == ["https://a.example.com/1"]
+    assert search_client.calls == [
+        ("DuckDB's memory limit is not what the docs imply. counter-position", 24)
+    ]
+
+
+def test_select_brief_refuses_a_dropped_brief(tmp_path, make_engine_config):
     project = _project()
     store.write_project(tmp_path / "data", project)
     store.write_briefs(tmp_path / "data", project.slug, [_brief(status=BriefStatus.DROPPED)])
+    gateway, _ = _gateway(tmp_path, make_engine_config, contents=[])
 
     with pytest.raises(InventoryError, match="dropped"):
-        writer.select_brief("br-01", data_root=tmp_path / "data")
+        writer.select_brief(
+            "br-01", data_root=tmp_path / "data", gateway=gateway, max_sources=8
+        )
 
 
-def test_select_brief_unknown_id_is_a_readable_error(tmp_path):
+def test_select_brief_unknown_id_is_a_readable_error(tmp_path, make_engine_config):
+    gateway, _ = _gateway(tmp_path, make_engine_config, contents=[])
+
     with pytest.raises(CEError, match="not found"):
-        writer.select_brief("br-99", data_root=tmp_path / "data")
+        writer.select_brief(
+            "br-99", data_root=tmp_path / "data", gateway=gateway, max_sources=8
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +643,42 @@ def test_evidence_context_empty_evidence_list(tmp_path):
     )
 
     assert context == "(no cited evidence)"
+
+
+def test_evidence_context_appends_piece_scoped_research_sources(tmp_path):
+    """Brief-scoped research (run at `ce brief select` time, after this
+    brief's own evidence list was already fixed at MATCH time) is appended
+    as additional [research] blocks in the same evidence string, not a
+    separate section -- so `article_draft`'s existing "ground every claim
+    in the evidence provided" instruction covers it too."""
+    data_root = tmp_path / "data"
+    project = _project()
+    brief = _brief()
+    brief.evidence = []
+    piece_research = ResearchHarvest(
+        sources=[
+            ResearchSource(
+                url="https://example.com/fresh-source",
+                title="A fresh, brief-scoped source",
+                fetched_at=NOW,
+                summary="Supports the specific angle this brief takes.",
+                stance=Stance.SUPPORTS,
+            )
+        ]
+    )
+
+    context = writer.format_evidence_context(
+        brief,
+        data_root=data_root,
+        project=project,
+        git_harvest=_EMPTY_GIT_HARVEST,
+        research_harvest=_EMPTY_RESEARCH_HARVEST,
+        piece_research=piece_research,
+    )
+
+    assert context != "(no cited evidence)"
+    assert "[research] https://example.com/fresh-source — A fresh, brief-scoped source" in context
+    assert "Supports the specific angle this brief takes." in context
 
 
 # ---------------------------------------------------------------------------

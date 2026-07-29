@@ -82,6 +82,14 @@ def select_brief(slug: str, brief_id: str) -> dict[str, str]:
     versus the destination page not being built yet -- need to stay visibly
     distinct rather than both collapsing into a raw 3xx a fetch() would
     silently follow.
+
+    Passes `--skip-research`: `ce brief select` now also runs a brief-scoped
+    research pass by default (a real network + LLM call), which would break
+    this route's "cheap, synchronous, block on it" premise above. The GUI
+    opts out here rather than becoming a genuinely async flow through
+    `/runs/start`'s console -- that's a bigger UX change than this refactor
+    covers. A GUI-selected piece simply doesn't get brief-scoped research
+    until this route is revisited.
     """
     data_root = Path("data")
     briefs = store.read_briefs(data_root, slug)
@@ -97,7 +105,9 @@ def select_brief(slug: str, brief_id: str) -> dict[str, str]:
 
     pieces_before = {p.id for p in store.list_pieces(data_root, slug)}
 
-    handle = runner.run_command(["brief", "select", brief_id], cwd=Path.cwd(), data_root=data_root)
+    handle = runner.run_command(
+        ["brief", "select", brief_id, "--skip-research"], cwd=Path.cwd(), data_root=data_root
+    )
     exit_code = handle.process.wait()
     if exit_code != 0:
         raise HTTPException(status_code=422, detail=_error_tail(handle.log_path))

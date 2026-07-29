@@ -663,6 +663,7 @@ def test_brief_select_promotes_a_brief_to_a_piece(tmp_path, monkeypatch):
     from ce.models import Brief, BriefDemand, BriefStatus, GroundingStrength, Project
 
     monkeypatch.chdir(tmp_path)
+    _write_minimal_engine_config(tmp_path)
     data_root = tmp_path / "data"
     store.write_project(
         data_root, Project(slug="test-proj", title="Test", started_at=date(2026, 7, 1))
@@ -686,7 +687,9 @@ def test_brief_select_promotes_a_brief_to_a_piece(tmp_path, monkeypatch):
         ],
     )
 
-    result = runner.invoke(cli.app, ["brief", "select", "br-01"])
+    # --skip-research: this test is about promotion, not the research pass
+    # (covered separately in test_produce_writer.py).
+    result = runner.invoke(cli.app, ["brief", "select", "br-01", "--skip-research"])
 
     assert result.exit_code == Exit.OK, result.output
     assert "pc-0001" in result.output
@@ -738,7 +741,9 @@ def test_produce_end_to_end_drafts_grades_and_writes_article(tmp_path, monkeypat
             )
         ],
     )
-    select_result = runner.invoke(cli.app, ["brief", "select", "br-01"])
+    # --skip-research: this test is about the produce/grade/revise loop, not
+    # the research pass (covered separately in test_produce_writer.py).
+    select_result = runner.invoke(cli.app, ["brief", "select", "br-01", "--skip-research"])
     assert select_result.exit_code == Exit.OK, select_result.output
 
     grade_json = json.dumps(

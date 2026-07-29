@@ -156,11 +156,14 @@ def verify(
     research_harvest: ResearchHarvest,
     search_client: SearchClient,
     fetch_client: FetchClient,
+    piece_research_harvest: ResearchHarvest | None = None,
 ) -> VerificationResult:
     """Extracts and verifies every factual claim in `article` (TDD 6.4).
     `evidence_context` is rebuilt the same way `produce()` built it for
     drafting — `claim_extract` needs to see the same cited material to
-    correctly attribute a `grounded` claim's `ref`.
+    correctly attribute a `grounded` claim's `ref`. `piece_research_harvest`
+    is the brief-scoped research `ce brief select` wrote for this piece,
+    kept in sync with what `produce()` fed the drafting prompt.
     """
     evidence_context = format_evidence_context(
         brief,
@@ -168,6 +171,7 @@ def verify(
         project=project,
         git_harvest=git_harvest,
         research_harvest=research_harvest,
+        piece_research=piece_research_harvest,
     )
     schema = _load_claims_schema(gateway.prompts_dir)
     result = gateway.complete(

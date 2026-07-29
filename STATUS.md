@@ -58,7 +58,70 @@ WP-17–WP-21.
 
 ---
 
+## Known bugs (not yet fixed)
+
+- **`ce harvest`'s `brief_generate` step can crash on schema validation for a
+  `video_walkthrough`-archetype candidate missing `target_platforms`, even
+  after the one built-in repair retry — aborting the whole harvest run
+  before `briefs.yml`/`inventory.md` are written.** Reproduced twice in a
+  row against `content-engine`'s own project
+  (`data/runs/20260729T004757889194-harvest-content-engine.log`,
+  `data/runs/20260729T012727170383-harvest-content-engine.log`), both times
+  on a different candidate item whose `archetype` was `video_walkthrough`.
+  `git.json`/`research.json` do get refreshed before the crash (git extract
+  + research run first in `cli.py::harvest`), but
+  `inventory_module.generate()` raises `SchemaValidationError`
+  (`gateway.py:297`) before ever calling `store.write_briefs()` — so no
+  existing brief/piece reference gets corrupted by a failed run, but new
+  captures since the last successful harvest never make it into a brief.
+  Not yet root-caused — needs a look at whether the `brief_generate`
+  prompt/schema interaction systematically under-specifies
+  `target_platforms` for video-walkthrough-shaped ideas, or if this is a
+  one-off model flake. Deferred; revisit before relying on `ce harvest`
+  again for this project.
+
+---
+
 ## Deviations from the TDD
+
+- **2026-07-29, cross-cutting (post-WP-22) · research is now also run
+  brief-scoped, at `ce brief select` time, in addition to the existing
+  project-wide pass at `ce harvest` time.** Not a TDD-driven WP — an
+  operator-requested refactor of already-closed WP-07/09/10 modules. A
+  single project-wide search query (the whole project's `hypothesis`
+  paragraph) was too generic to usefully ground any one article; `ce brief
+  select <id>` now runs a second `harvest/research.py::research()` call
+  using `f"{brief.title}. {brief.angle}"` as the query, writing
+  `pieces/<id>/research.json` (new: `store.research_json_path`) alongside
+  the existing project-wide `harvest/research.json` (both files coexist —
+  the project-wide pass and its `brief_generate` context are untouched).
+  `research()`/`read_research_harvest()` were generalized to take an
+  explicit `output_path`/`path` instead of a `harvest_dir` implying "the one
+  project file," so the same functions serve both call sites with no
+  duplicated search/dedupe/fetch/summarize logic.
+  `produce/writer.py::format_evidence_context()` appends the piece-scoped
+  sources as additional `[research]` blocks *in the same evidence-context
+  string* brief-time citations already use (not a separate prompt section),
+  so `article_draft.md`'s existing "ground every claim in the evidence
+  provided" instruction covers them too with no prompt file changes or
+  version bump; `produce()` and `gates/claims.py::verify()` both thread a
+  new `piece_research_harvest`/`piece_research` parameter through so
+  `claim_extract` keeps seeing exactly what the article was drafted from.
+  `ce brief select` gained a `--skip-research` flag mirroring
+  `ce harvest`'s. **`gui/routes/briefs.py`'s `/select` endpoint now always
+  passes `--skip-research`** — that route's own docstring documents running
+  `ce brief select` synchronously specifically because it used to be "a
+  plain file read/write with no LLM call, so waiting for it is cheap"; a
+  brief-scoped research pass breaks that premise, and making the GUI wait on
+  a live network+LLM call (or routing it through `/runs/start`'s async
+  console instead) was out of scope for this refactor — GUI-selected pieces
+  currently get no brief-scoped research until that route is revisited.
+  Bundled in since it was a one-line, no-cost fix benefiting both call
+  sites: `ce harvest`/`ce brief select` now `console.warn` when a research
+  call returns zero sources, rather than writing an empty `research.json`
+  silently (this is what let the earlier zero-research-sources bug run
+  unnoticed — see the git history around this entry's date for the
+  diagnosis).
 
 - **WP-22 · the YouTube title counter's `60`-char limit is a second hardcoded
   literal in `renditions.html` (`data-max="60"`), not read from any shared

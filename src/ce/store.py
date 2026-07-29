@@ -113,6 +113,13 @@ def verification_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
     return piece_dir(data_root, slug, piece_id) / "verification.json"
 
 
+def research_json_path(data_root: Path, slug: str, piece_id: str) -> Path:
+    """Brief-scoped research output (distinct from the project-wide
+    `harvest/research.json`) -- written by `ce brief select`, read by
+    `ce produce`/`ce verify` alongside the project-level file."""
+    return piece_dir(data_root, slug, piece_id) / "research.json"
+
+
 def renditions_dir(data_root: Path, slug: str, piece_id: str) -> Path:
     return piece_dir(data_root, slug, piece_id) / "renditions"
 

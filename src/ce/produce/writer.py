@@ -33,9 +33,10 @@ from pydantic import BaseModel, Field
 from ce import store
 from ce.evidence import resolve_capture_or_commit
 from ce.exit_codes import CEError
+from ce.harvest import research as research_module
 from ce.harvest.git import CommitRecord, GitHarvest
 from ce.harvest.inventory import assert_selectable
-from ce.harvest.research import ResearchHarvest
+from ce.harvest.research import FetchClient, ResearchHarvest, SearchClient
 from ce.index import EmbeddingsClient, cosine_similarity
 from ce.llm.gateway import Gateway
 from ce.models import Brief, BriefStatus, Capture, GradeAttempt, GradeScores, Piece, Project
@@ -65,9 +66,28 @@ def _slugify(title: str) -> str:
     return slug or "untitled"
 
 
-def select_brief(brief_id: str, *, data_root: Path, now: datetime | None = None) -> Piece:
+def select_brief(
+    brief_id: str,
+    *,
+    data_root: Path,
+    gateway: Gateway,
+    max_sources: int,
+    search_client: SearchClient | None = None,
+    fetch_client: FetchClient | None = None,
+    skip_research: bool = False,
+    now: datetime | None = None,
+) -> Piece:
     """Promotes `brief_id` to a `Piece` (TDD 9: `ce brief select <brief-id>
-    → creates a Piece, returns piece-id`). Refuses a `dropped` brief."""
+    → creates a Piece, returns piece-id`). Refuses a `dropped` brief.
+
+    Also runs one brief-scoped research pass (`brief.title` + `brief.angle`
+    as the query), written to `pieces/<id>/research.json` -- distinct from
+    the project-wide research `ce harvest` already ran. A single project-wide
+    query is too generic to usefully support any one article; this gives the
+    piece this brief is about to become its own freshly-searched, topically
+    relevant material. `skip_research` mirrors `ce harvest --skip-research`
+    for when a network/LLM call isn't wanted at selection time.
+    """
     found = store.find_brief(data_root, brief_id)
     if found is None:
         raise CEError(f"brief {brief_id!r} not found")
@@ -89,6 +109,16 @@ def select_brief(brief_id: str, *, data_root: Path, now: datetime | None = None)
         if b.id == brief.id:
             b.status = BriefStatus.SELECTED
     store.write_briefs(data_root, project.slug, briefs)
+
+    if not skip_research:
+        research_module.research(
+            f"{brief.title}. {brief.angle}",
+            gateway=gateway,
+            output_path=store.research_json_path(data_root, project.slug, piece.id),
+            max_sources=max_sources,
+            search_client=search_client,
+            fetch_client=fetch_client,
+        )
 
     return piece
 
@@ -133,6 +163,7 @@ def format_evidence_context(
     project: Project,
     git_harvest: GitHarvest,
     research_harvest: ResearchHarvest,
+    piece_research: ResearchHarvest | None = None,
 ) -> str:
     """Resolves each `evidence.ref` back to its real source material (TDD
     10.5: "cited evidence in full"; TDD 11: article_draft "receives raw +
@@ -142,14 +173,20 @@ def format_evidence_context(
     not the whole harvest (unlike WP-08's inventory context, which needs
     everything in order to choose *what* to cite in the first place).
 
+    `piece_research` (brief-scoped research, run at `ce brief select` time)
+    is appended as additional `[research]` blocks in this same string,
+    deliberately not a separate prompt section — `article_draft.md`'s
+    existing "ground every claim in the evidence provided" instruction
+    already covers whatever's in here, so a fresh source the brief's own
+    evidence list couldn't have cited (it didn't exist at brief-generation
+    time) still gets treated as citable material rather than free-range
+    context the model might use ungrounded.
+
     Public (not `_`-prefixed): `gates/claims.py` (WP-10) reuses this
     verbatim so `claim_extract` sees the same evidence material the article
     was drafted from — otherwise it couldn't tell which capture/commit a
     "grounded" claim should cite.
     """
-    if not brief.evidence:
-        return "(no cited evidence)"
-
     project_root = store.project_dir(data_root, project.slug)
     captures_by_id = {c.id: c for c in store.list_captures(data_root, project.slug)}
     research_by_url = {s.url: s for s in research_harvest.sources}
@@ -179,6 +216,12 @@ def format_evidence_context(
             body = e.quote or "(source no longer resolves)"
 
         blocks.append(f"{header}\n{body}")
+
+    for s in (piece_research.sources if piece_research else []):
+        blocks.append(f"[research] {s.url} — {s.title}\n{s.summary}")
+
+    if not blocks:
+        return "(no cited evidence)"
     return "\n\n".join(blocks)
 
 
@@ -323,6 +366,7 @@ def produce(
     max_attempts: int,
     grade_weights: GradeScores,
     voice: VoiceRagSettings,
+    piece_research_harvest: ResearchHarvest | None = None,
     brand_brief_path: Path = Path("config/brand-brief.md"),
     cache: bool = True,
     now: datetime | None = None,
@@ -337,6 +381,8 @@ def produce(
     `harvest/research.json` by the caller (`ce produce` runs as a separate
     invocation from `ce harvest`, so there's no in-memory harvest left over
     — see `harvest.git.read_git_harvest`/`harvest.research.read_research_harvest`).
+    `piece_research_harvest` is the brief-scoped counterpart written by
+    `ce brief select`, read from `pieces/<id>/research.json`.
     """
     evidence_context = format_evidence_context(
         brief,
@@ -344,6 +390,7 @@ def produce(
         project=project,
         git_harvest=git_harvest,
         research_harvest=research_harvest,
+        piece_research=piece_research_harvest,
     )
     voice_query = f"{brief.title}\n{brief.angle}"
     voice_chunks = _top_voice_chunks(

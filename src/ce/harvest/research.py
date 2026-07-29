@@ -357,16 +357,18 @@ def _write_research_json(path: Path, harvest: ResearchHarvest) -> None:
     path.write_text(harvest.model_dump_json(indent=2), encoding="utf-8")
 
 
-def read_research_harvest(harvest_dir: Path) -> ResearchHarvest:
-    """Reads back `harvest_dir/research.json` (written by `research()`).
-    Needed by WP-09's `produce()`, which runs as a separate `ce produce`
-    invocation after `ce harvest` already exited -- there's no in-memory
-    `ResearchHarvest` left over the way `ce harvest` has one for its own
-    call into `inventory.generate()`. An empty harvest if the file doesn't
-    exist yet, rather than raising -- same "best-effort optional input"
-    shape as `harvest/inventory.py`'s sweeps/inbound context.
+def read_research_harvest(path: Path) -> ResearchHarvest:
+    """Reads back a `research.json` written by `research()` — the caller
+    passes the exact file path, since this is shared by two call sites with
+    different files: the project-wide `harvest/research.json` (WP-07) and a
+    piece-scoped `pieces/<id>/research.json` (brief-scoped research, added
+    later). Needed because both `ce produce` and `ce verify` run as separate
+    invocations after whichever `research()` call wrote the file already
+    exited -- there's no in-memory `ResearchHarvest` left over. An empty
+    harvest if the file doesn't exist yet, rather than raising -- same
+    "best-effort optional input" shape as `harvest/inventory.py`'s
+    sweeps/inbound context.
     """
-    path = harvest_dir / "research.json"
     if not path.exists():
         return ResearchHarvest(sources=[])
     return ResearchHarvest.model_validate_json(path.read_text(encoding="utf-8"))
@@ -376,7 +378,7 @@ def research(
     query: str,
     *,
     gateway: Gateway,
-    harvest_dir: Path,
+    output_path: Path,
     max_sources: int,
     search_client: SearchClient | None = None,
     fetch_client: FetchClient | None = None,
@@ -387,6 +389,11 @@ def research(
     summarized. A fetch failure (network error, empty page) is skipped —
     not aborted — so one dead link doesn't sink the whole run (TDD 12
     WP-07 Done-when).
+
+    Writes the result to `output_path` directly (not a directory) -- this
+    same function is reused for both the project-wide research pass at
+    `ce harvest` time and a brief-scoped pass at `ce brief select` time,
+    which write to two different files.
     """
     search_client = search_client or DuckDuckGoSearchClient()
     fetch_client = fetch_client or HttpFetchClient()
@@ -428,5 +435,5 @@ def research(
         )
 
     harvest = ResearchHarvest(sources=sources)
-    _write_research_json(harvest_dir / "research.json", harvest)
+    _write_research_json(output_path, harvest)
     return harvest
