@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}{{ piece.id }} - Content Engine{% endblock %}
+{% block content %}
+  <p><a href="/projects/{{ project.slug }}">&larr; {{ project.title }}</a></p>
+  <h1>{{ piece.id }} <span class="status status-{{ piece.status.value }}">{{ piece.status.value }}</span></h1>
+  <p><code>{{ piece.slug }}</code></p>
+
+  <h2>Article</h2>
+  {% if article_text is none %}
+    <p class="empty-state">
+      Not drafted yet. Run <code>ce produce {{ piece.id }}</code> (see the
+      <a href="/runs">Runs</a> console).
+    </p>
+  {% else %}
+    <p>
+      <textarea id="article" rows="20" style="width:100%; font-family: monospace;"
+      >{{ article_text }}</textarea>
+    </p>
+    <p>
+      <button id="save-btn">Save</button>
+      <span id="save-status"></span>
+    </p>
+  {% endif %}
+
+  <h2>Grade history</h2>
+  {% if not attempts %}
+    <p class="empty-state">No grading attempts yet.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Attempt</th>
+          <th>Total</th>
+          <th>Hook</th>
+          <th>Evidence</th>
+          <th>Specificity</th>
+          <th>Voice</th>
+          <th>CTA</th>
+          <th>Top fixes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in attempts %}
+          <tr>
+            <td>{{ a.attempt }}</td>
+            <td><strong>{{ "%.1f" | format(a.total) }}</strong></td>
+            <td>{{ "%.1f" | format(a.scores.hook) }}</td>
+            <td>{{ "%.1f" | format(a.scores.evidence) }}</td>
+            <td>{{ "%.1f" | format(a.scores.specificity) }}</td>
+            <td>{{ "%.1f" | format(a.scores.voice) }}</td>
+            <td>{{ "%.1f" | format(a.scores.cta) }}</td>
+            <td>
+              {% for fix in a.top_fixes %}
+                <div><strong>[{{ fix.impact }}] {{ fix.dimension }}</strong>: {{ fix.issue }}
+                  &rarr; {{ fix.suggested_change }}</div>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2>Verification</h2>
+  {% if piece.verification is none %}
+    <p class="empty-state">
+      Not yet verified. Run <code>ce verify {{ piece.id }}</code> below.
+    </p>
+  {% else %}
+    <dl class="rollup">
+      <dt>claims checked</dt><dd>{{ piece.verification.claims_checked }}</dd>
+      <dt>claims failed</dt><dd>{{ piece.verification.claims_failed }}</dd>
+      <dt>ran at</dt><dd>{{ piece.verification.ran_at }}</dd>
+    </dl>
+    {% if claims %}
+      <table>
+        <thead>
+          <tr>
+            <th>Claim</th>
+            <th>Class</th>
+            <th>Ref / source</th>
+            <th>Passed</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in claims %}
+            <tr>
+              <td>{{ c.text }}</td>
+              <td>{{ c.claim_class }}</td>
+              <td>{{ c.ref or c.source_url or "" }}</td>
+              <td>
+                <span class="status status-{{ 'ok' if c.passed else 'fail' }}">
+                  {{ "pass" if c.passed else "fail" }}
+                </span>
+              </td>
+              <td>{{ c.reason }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+
+  <h2>Actions</h2>
+  <p>
+    <button class="run-btn" data-command="verify">Run verify</button>
+    <button class="run-btn" data-command="assets">Run assets</button>
+    <button class="run-btn" data-command="render">Run render</button>
+    <span id="run-error" style="color: #c33;"></span>
+  </p>
+
+  <script>
+    {% if article_text is not none %}
+    // Saving writes straight to `article.md` at its normal path (the route
+    // does a bare file write) -- indistinguishable from a manual edit, so
+    // ADR-008's mtime-based edit check passes afterward with zero special
+    // casing (WP-21's Done-when line).
+    const saveBtn = document.getElementById("save-btn");
+    const saveStatus = document.getElementById("save-status");
+    const articleEl = document.getElementById("article");
+
+    saveBtn.addEventListener("click", () => {
+      saveStatus.textContent = "saving…";
+      fetch("/pieces/{{ piece.id }}/article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: articleEl.value }),
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error("save failed");
+          saveStatus.textContent = "saved";
+        })
+        .catch(() => {
+          saveStatus.textContent = "save failed";
+        });
+    });
+    {% endif %}
+
+    // Each action button reuses WP-19's own `/runs/start` + `/runs/<id>`
+    // console rather than this screen launching a second, piece-scoped
+    // subprocess path -- `verify`/`assets`/`render` are already entries in
+    // runs.py's `_COMMANDS` list, keyed by the same command name used here.
+    const runErrorEl = document.getElementById("run-error");
+    document.querySelectorAll(".run-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        runErrorEl.textContent = "";
+        btn.disabled = true;
+        fetch("/runs/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command: btn.dataset.command, argument: "{{ piece.id }}" }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.detail || "could not start run");
+            window.location.href = `/runs/${data.run_id}`;
+          })
+          .catch((err) => {
+            runErrorEl.textContent = err.message;
+            btn.disabled = false;
+          });
+      });
+    });
+  </script>
+{% endblock %}

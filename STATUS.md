@@ -2,10 +2,10 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-20 (Brief review & selection):
-`gui/routes/briefs.py` (`/projects/<slug>/briefs` list, `POST
-/projects/<slug>/briefs/<brief-id>/select` shelling to the real `ce brief
-select`), `briefs.html`. Same day as WP-17/WP-18/WP-19.
+**Last session:** 2026-07-28 — completed WP-21 (Article & grade review):
+`gui/routes/pieces.py` (`/pieces/<id>` article/grade/verification screen,
+`POST /pieces/<id>/article` save-back), `pieces.html`; small per-piece link
+addition to `project_detail.html`. Same day as WP-17/WP-18/WP-19/WP-20.
 
 ---
 
@@ -46,8 +46,8 @@ select`), `briefs.html`. Same day as WP-17/WP-18/WP-19.
 | WP-18 | Project dashboard | ✅ done | 477 tests passing (4 new), 1 skipped (pre-existing); no new `doctor.py` entry (read-only screen, no new dependency) |
 | WP-19 | Pipeline run/log console | ✅ done | 487 tests passing (9 new), 1 skipped (pre-existing); no new `doctor.py` entry (subprocess console, no new dependency) |
 | WP-20 | Brief review & selection | ✅ done | 492 tests passing (6 new), 1 skipped (pre-existing); no new `doctor.py` entry (list + subprocess-select screen, no new dependency) |
-| WP-21 | Article & grade review | 🔵 next | |
-| WP-22 | Rendition editing & package preview | ⬜ | |
+| WP-21 | Article & grade review | ✅ done | 500 tests passing (8 new), 1 skipped (pre-existing); no new `doctor.py` entry (article/grade/verification review + save-back, no new dependency) |
+| WP-22 | Rendition editing & package preview | 🔵 next | |
 
 **Critical path:** 00 → 01 → 02 → 05 → 08 → 09 → 12 → 13
 **GUI critical path:** 17 → 19 → 21 → 22 (18, 20 can slip)
@@ -56,6 +56,45 @@ select`), `briefs.html`. Same day as WP-17/WP-18/WP-19.
 
 ## Deviations from the TDD
 
+- **WP-21 · `grades.json`/`verification.json` are parsed as plain JSON
+  (`gui/routes/pieces.py::_read_json`), never through
+  `produce/writer.py::GradesLog` or `gates/claims.py::VerificationResult`.**
+  §10.10's hard rule forbids the GUI importing pipeline modules
+  (`harvest/`, `produce/`, `gates/`) at all — both files are already
+  fully-formed JSON written by those modules, so reading them with the
+  stdlib `json` module and handing the resulting dicts straight to the
+  Jinja template is a plain file read, not a second implementation of
+  either module's grading/verification logic.
+- **WP-21 · the "buttons to trigger `verify`/`assets`/`render`" Build line
+  is satisfied by having `pieces.html`'s action buttons POST to the existing
+  `/runs/start` (WP-19's `runner.py`-backed endpoint), not by
+  `gui/routes/pieces.py` launching a second, piece-scoped subprocess path.**
+  All three commands were already `runs.py::_COMMANDS` entries with a
+  "piece id" argument hint; reusing them means there is exactly one place in
+  the GUI that ever calls `runner.run_command`, and the same `/runs/<id>`
+  live-log console (closed-tab-safe, replayable) is what shows their
+  output, rather than a duplicate SSE view built just for this screen.
+- **WP-21 · the Done-when line's literal wording ("`ce verify`'s ADR-008
+  edit check") doesn't match the actual codebase** — the mtime-vs-
+  `generated_at` check (`assert_edited`) lives only in `publish/site.py`
+  (built in WP-14), called from `ce publish site`, not `ce verify`
+  (`cli.py`'s `verify` command does no mtime check at all). Read as an
+  imprecision in the TDD's own prose rather than a defect to fix here: the
+  mechanism this WP actually needs to satisfy — a GUI save producing a
+  plain `Path.write_text`, indistinguishable from a manual edit, so
+  whichever command enforces ADR-008 sees a later mtime — is what's built
+  and tested, verified directly against the real `assert_edited` function
+  by this session's `wp-spec-conformance` review rather than assumed.
+- **WP-21 · no individual per-piece links existed anywhere in the GUI
+  before this session** — `project_detail.html` only ever rendered a
+  status-count rollup (`Counter` over `PieceStatus`, WP-18), never a link to
+  any single piece, so `/pieces/<id>` would have been reachable only by
+  hand-typing a URL or following a brief-select redirect. Added a small
+  `<ul>` of `id -- slug (status)` links using the `pieces` list
+  `dashboard.py::project_detail` already passes to the template — not named
+  by WP-21's Build/Done-when lines, but the same "build what the spirit of
+  the screen needs to actually be reachable" precedent as WP-18's
+  status-breakdown call.
 - **WP-20 · `/projects/<slug>/briefs` reads only `briefs.yml` (via
   `store.read_briefs`), never `inventory.md`**, despite the Build line
   naming both. Checked `harvest/inventory.py::format_inventory_md` directly

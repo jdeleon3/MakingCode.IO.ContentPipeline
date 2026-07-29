@@ -51,5 +51,13 @@
         <dt>{{ status }}</dt><dd>{{ count }}</dd>
       {% endfor %}
     </dl>
+    <ul>
+      {% for piece in pieces %}
+        <li>
+          <a href="/pieces/{{ piece.id }}">{{ piece.id }}</a> -- {{ piece.slug }}
+          <span class="status status-{{ piece.status.value }}">{{ piece.status.value }}</span>
+        </li>
+      {% endfor %}
+    </ul>
   {% endif %}
 {% endblock %}
