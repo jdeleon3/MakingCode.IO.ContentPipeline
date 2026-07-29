@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} - Content Engine{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; Dashboard</a></p>
+  <h1>{{ project.title }}</h1>
+  <p>
+    <span class="status status-{{ project.status.value }}">{{ project.status.value }}</span>
+    <code>{{ project.slug }}</code>
+  </p>
+  {% if project.tags %}<p>Tags: {{ project.tags | join(", ") }}</p>{% endif %}
+
+  <h2>Captures ({{ captures | length }})</h2>
+  {% if not captures %}
+    <p class="empty-state">No captures ingested yet.</p>
+  {% else %}
+    <dl class="rollup">
+      {% for type, count in captures_by_type %}
+        <dt>{{ type }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+
+  <h2>Harvest</h2>
+  {% if not harvest.harvested %}
+    <p class="empty-state">Not harvested yet. Run <code>ce harvest {{ project.slug }}</code>.</p>
+  {% else %}
+    <dl class="rollup">
+      <dt>git extract</dt><dd>{{ "done" if harvest.git else "pending" }}</dd>
+      <dt>research</dt><dd>{{ "done" if harvest.research else "pending" }}</dd>
+      <dt>inventory</dt><dd>{{ "done" if harvest.inventory else "pending" }}</dd>
+    </dl>
+  {% endif %}
+
+  <h2>Briefs ({{ briefs | length }})</h2>
+  {% if not briefs %}
+    <p class="empty-state">No briefs yet.</p>
+  {% else %}
+    <dl class="rollup">
+      {% for status, count in briefs_by_status %}
+        <dt>{{ status }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+
+  <h2>Pieces ({{ pieces | length }})</h2>
+  {% if not pieces %}
+    <p class="empty-state">No pieces selected yet.</p>
+  {% else %}
+    <dl class="rollup">
+      {% for status, count in pieces_by_status %}
+        <dt>{{ status }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+{% endblock %}

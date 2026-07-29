@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ce.gui import runner
+from ce.gui.routes import dashboard as dashboard_routes
 from ce.gui.routes import doctor as doctor_routes
 
 _PACKAGE_DIR = Path(__file__).parent
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.state.templates = Jinja2Templates(directory=_PACKAGE_DIR / "templates")
     app.mount("/static", StaticFiles(directory=_PACKAGE_DIR / "static"), name="static")
 
+    app.include_router(dashboard_routes.router)
     app.include_router(doctor_routes.router)
 
     return app

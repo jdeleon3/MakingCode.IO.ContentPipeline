@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Content Engine{% endblock %}
+{% block content %}
+  <h1>Projects</h1>
+
+  {% if not projects %}
+    <p>No projects yet. Run <code>ce project new &lt;slug&gt; --repo &lt;path&gt;</code> to create one.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Project</th><th>Status</th><th>Started</th><th>Tags</th></tr>
+      </thead>
+      <tbody>
+        {% for project in projects %}
+          <tr>
+            <td><a href="/projects/{{ project.slug }}">{{ project.title }}</a></td>
+            <td><span class="status status-{{ project.status.value }}">{{ project.status.value }}</span></td>
+            <td>{{ project.started_at }}</td>
+            <td>{{ project.tags | join(", ") }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

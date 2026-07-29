@@ -2,11 +2,9 @@
 
 **Project:** Content Engine (`ce`)
 **Spec:** `docs/TDD-content-engine.md`
-**Last session:** 2026-07-28 — completed WP-17 (GUI scaffold, process runner,
-doctor screen): `ce gui`, `src/ce/gui/` (`app.py`, `runner.py`,
-`routes/doctor.py`), vendored `htmx.min.js`, and a new cross-cutting
-`ce/run_log.py` every invocation now goes through. Same day as the WP-16
-close and the GUI design session that added WP-17–WP-22.
+**Last session:** 2026-07-28 — completed WP-18 (Project dashboard):
+`gui/routes/dashboard.py` (`/` and `/projects/<slug>`), `dashboard.html`,
+`project_detail.html`. Same day as WP-17.
 
 ---
 
@@ -44,8 +42,8 @@ close and the GUI design session that added WP-17–WP-22.
 | WP-15 | Post-back & metrics | ✅ done | 449 tests passing (28 new); `UMAMI_API_KEY`/`YOUTUBE_API_KEY` now required in `doctor.py` |
 | WP-16 | Trend sweep | ✅ done | 460 tests passing (12 new), 1 skipped (`EXPECTED_WP` in `test_cli.py` is now empty -- every stub is built); no new doctor entry, neither source needs auth |
 | WP-17 | GUI scaffold, process runner, doctor screen | ✅ done | 473 tests passing (13 new), 1 skipped (pre-existing); new `gui` optional-dependency group (`fastapi`, `uvicorn`); no new `doctor.py` entry |
-| WP-18 | Project dashboard | 🔵 next | |
-| WP-19 | Pipeline run/log console | ⬜ | |
+| WP-18 | Project dashboard | ✅ done | 477 tests passing (4 new), 1 skipped (pre-existing); no new `doctor.py` entry (read-only screen, no new dependency) |
+| WP-19 | Pipeline run/log console | 🔵 next | |
 | WP-20 | Brief review & selection | ⬜ | |
 | WP-21 | Article & grade review | ⬜ | |
 | WP-22 | Rendition editing & package preview | ⬜ | |
@@ -57,6 +55,23 @@ close and the GUI design session that added WP-17–WP-22.
 
 ## Deviations from the TDD
 
+- **WP-18 · "not harvested" is `git.json` absent AND `research.json` absent AND
+  `inventory.md` absent, not a single canonical flag.** TDD 10.10's Screens
+  table just says `/projects/<slug>` reads "project + capture/harvest/piece
+  counts" without defining what "harvested" means precisely. Cross-checked
+  against the actual write paths (`harvest/git.py`'s `git.json`,
+  `harvest/research.py`'s `research.json`, `harvest/inventory.py`'s
+  `inventory.md`, all under `store.harvest_dir`) rather than inventing a
+  fourth marker file — a project with *any* one of the three counts as
+  "harvested" (possibly mid-harvest), all three absent is the explicit
+  "not harvested yet" empty state the Done-when line calls out.
+- **WP-18 · brief/piece counts are broken down by status (`Counter` over
+  `BriefStatus`/`PieceStatus`), not shown as a single number.** Not required
+  by the literal Done-when wording ("rolls up ... counts"), but a bare total
+  hides exactly the distinction the dashboard exists to surface (e.g. how
+  many briefs are `dropped` vs `candidate`) — same "build what the spirit of
+  the Build line asks for" precedent as WP-11's hero-image handling and
+  WP-15's `performance.md`.
 - **WP-17 · TDD §14's "every run writes `data/runs/<ts>-<command>.log`" had
   never actually been built by any prior WP, despite being described as an
   existing, system-wide behavior** — no logging module, no `data/runs/`
