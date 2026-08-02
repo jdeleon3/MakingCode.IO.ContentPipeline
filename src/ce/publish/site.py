@@ -36,6 +36,28 @@ name would collide on the second post. `[...id].astro` in the site repo
 already derives `ogImage` from `heroImage` at build time via `getImage()`,
 so nothing here needs to touch `ogImage` directly.
 
+**Inline body images follow the same copy-and-rewrite treatment as the hero
+(post-WP-14 bug fix).** `article.md`'s body may reference a piece's own
+staged/rendered assets with `![alt](assets/<file>)` -- the same
+`assets/<file>` relative-path convention ADR-006's `REVIEW.html` already
+uses (`package/review_html.py`). Before this fix, that literal path was
+written straight into the site repo's markdown unchanged: the referenced
+file was never copied there, and even if it had been, a bare `assets/...`
+path doesn't resolve against `src/content/blog/<slug>.md` the way Astro
+needs (confirmed against the real site repo's two published posts --
+neither uses a body image, only `heroImage` -- and its
+`src/content.config.ts`/`astro.config.mjs`, which resolve relative
+Markdown image paths against the content file's own location, same as the
+`image()` schema helper already does for `heroImage`). `_rewrite_body_images`
+finds each such reference, asserts the source file exists in the piece's
+own `assets/` dir (a clear `PublishError` if not -- a missing image should
+never silently ship as a broken link), copies it to
+`src/assets/blog/<slug>-<file>` (slug-namespaced for the same collision
+reason as the hero), and rewrites the body to
+`../../assets/blog/<slug>-<file>`. Absolute URLs (`http(s)://`) and
+site-absolute paths (leading `/`) are left untouched -- neither is a piece
+asset.
+
 **`--no-edit-check` is a parameter on `publish()`, not a CLI flag.** ADR-008
 says the bypass exists "for testing only" but never says which command
 surfaces it, and TDD 9's own CLI contract line for this exact command --
@@ -46,10 +68,11 @@ call directly, not as an operator-facing escape hatch.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -78,6 +101,12 @@ POLL_TIMEOUT_SEC = 120.0
 POLL_INTERVAL_SEC = 5.0
 
 _REQUIRED_OG_TAGS = ("og:title", "og:description", "og:image")
+
+# `![alt](assets/<file>)` -- ADR-006's own "images referenced by relative
+# path" convention (already used by `package/review_html.py`), reused here
+# so an operator only has to learn one way to reference a piece's own asset
+# from within `article.md`.
+_BODY_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(assets/([^)\s]+)\)")
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +216,32 @@ def _find_hero_source(data_root: Path, project_slug: str, piece_id: str) -> Path
     return matches[0] if matches else None
 
 
+def _rewrite_body_images(
+    body: str, *, assets_dir: Path, piece_slug: str
+) -> tuple[str, list[tuple[Path, Path]]]:
+    """Rewrites every `![alt](assets/<file>)` in `body` to the
+    `../../assets/blog/<slug>-<file>` path Astro needs to resolve it from
+    `src/content/blog/<slug>.md`, and returns the (source, dest) copy pairs
+    the caller still has to perform (dest relative to `identity.site_repo`).
+    Raises `PublishError` naming the missing file rather than shipping a
+    silently broken image link."""
+    images: list[tuple[Path, Path]] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        alt, filename = match.group(1), match.group(2)
+        source = assets_dir / filename
+        if not source.is_file():
+            raise PublishError(
+                f"article.md references assets/{filename}, but {source} does not exist "
+                "-- stage it with `ce assets` or place it there by hand before publishing"
+            )
+        dest = _ASSET_DIR / f"{piece_slug}-{filename}"
+        images.append((source, dest))
+        return f"![{alt}](../../assets/blog/{piece_slug}-{filename})"
+
+    return _BODY_IMAGE_RE.sub(_replace, body), images
+
+
 @dataclass
 class PublishPlan:
     content_path: Path  # relative to identity.site_repo
@@ -195,6 +250,7 @@ class PublishPlan:
     canonical_url: str
     hero_source: Path | None = None
     hero_dest: Path | None = None  # relative to identity.site_repo
+    body_images: list[tuple[Path, Path]] = field(default_factory=list)  # (source, dest-relative)
 
 
 def plan(
@@ -226,6 +282,9 @@ def plan(
         hero_dest = _ASSET_DIR / f"{piece.slug}{hero_source.suffix.lower()}"
         frontmatter["heroImage"] = f"../../assets/blog/{hero_dest.name}"
 
+    assets_dir = store.piece_dir(data_root, project.slug, piece.id) / "assets"
+    body, body_images = _rewrite_body_images(body, assets_dir=assets_dir, piece_slug=piece.slug)
+
     content_text = (
         "---\n"
         + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
@@ -241,6 +300,7 @@ def plan(
         canonical_url=canonical_url(site_url, piece.slug),
         hero_source=hero_source,
         hero_dest=hero_dest,
+        body_images=body_images,
     )
 
 
@@ -368,6 +428,12 @@ def publish(
         hero_dest_abs.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(built_plan.hero_source, hero_dest_abs)
         committed_paths.append(built_plan.hero_dest)
+
+    for image_source, image_dest in built_plan.body_images:
+        image_dest_abs = site_repo / image_dest
+        image_dest_abs.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(image_source, image_dest_abs)
+        committed_paths.append(image_dest)
 
     commit_and_push(
         site_repo, paths=committed_paths, message=f"Publish: {built_plan.frontmatter['title']}"

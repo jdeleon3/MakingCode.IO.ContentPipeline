@@ -1,0 +1,50 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TD
+    start(["ce publish site &lt;piece-id&gt;"])
+    dryrun{"--dry-run?"}
+    start --> dryrun
+
+    planonly["<b>plan() only</b><br/><span style='font-size:11px'>prints frontmatter + file plan — nothing written, no checks run</span>"]
+    preview(["preview only, no side effects"])
+    dryrun -- yes --> planonly --> preview
+
+    editcheck{"ADR-008: edited since generated_at?<br/><span style='font-size:11px'>mtime(article.md) &gt; piece.generated_at</span>"}
+    notedited["assert_edited fails<br/><span style='font-size:11px'>go edit the draft first</span>"]
+    dryrun -- no --> editcheck
+    editcheck -- no --> notedited
+
+    verifiedcheck{"G4: already passed ce verify?"}
+    notverified["assert_verified fails<br/><span style='font-size:11px'>run ce verify first</span>"]
+    editcheck -- yes --> verifiedcheck
+    verifiedcheck -- no --> notverified
+
+    planstep["<b>plan()</b><br/><span style='font-size:11px'>rewrite body images, build frontmatter, compute canonical_url</span>"]
+    write["<b>Write + copy into site_repo</b><br/><span style='font-size:11px'>content file, hero image, body images</span>"]
+    commit["<b>Commit + push</b><br/><span style='font-size:11px'>the one command that leaves this machine</span>"]
+    poll["<b>Poll canonical URL</b><br/><span style='font-size:11px'>up to 120s, then assert_og_tags_present</span>"]
+    done(["piece.published.url set — status: published"])
+
+    verifiedcheck -- yes --> planstep --> write --> commit --> poll --> done
+
+    classDef auto fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef decision fill:#15171b,stroke:#259ae8,color:#ece7dd;
+    classDef final fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+    classDef warn fill:#b7791f1a,stroke:#b7791f,color:#ece7dd;
+
+    class planonly,planstep,write,commit,poll auto;
+    class dryrun,editcheck,verifiedcheck decision;
+    class preview,done final;
+    class notedited,notverified warn;

@@ -1,122 +1,140 @@
 {% extends "base.html" %}
 {% block title %}{{ piece.id }} renditions - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .platform-card { margin-bottom: var(--space-4); }
+  .platform-card h2 { margin-top: 0; }
+  .asset-strip { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+  .asset-strip figure { margin: 0; }
+  .asset-strip img { max-width: 200px; max-height: 150px; display: block; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .asset-strip figcaption { font-size: 0.78rem; color: var(--text-faint); margin-top: 0.2rem; }
+  .review-frame { width: 100%; height: 640px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .posted-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+  .posted-row label { margin: 0; min-width: 6rem; }
+  .posted-row input[type="text"] { width: 20rem; }
+</style>
+{% endblock %}
 {% block content %}
   <p><a href="/pieces/{{ piece.id }}">&larr; {{ piece.id }}</a></p>
   <h1>{{ piece.id }} &mdash; Renditions &amp; package</h1>
 
-  {% for p in platforms %}
-    <h2>{{ p.name | capitalize }}</h2>
-    {% if p.rendition is none %}
-      <p class="empty-state">
-        Not rendered yet. Run <code>ce render {{ piece.id }} --platform {{ p.name }}</code>
-        (see <a href="/runs">Runs</a>, or the button below).
-      </p>
-    {% elif p.name == "youtube" %}
-      <p>
-        <label for="title-youtube">
-          Title
-          {% if p.config %}
-            <span class="char-counter" data-target="title-youtube" data-max="60">0/60</span>
+  <div class="stack">
+    <div>
+      {% for p in platforms %}
+        <div class="card platform-card">
+          <h2>{{ p.name | capitalize }}</h2>
+          {% if p.rendition is none %}
+            <p class="empty-state">
+              Not rendered yet. Run <code>ce render {{ piece.id }} --platform {{ p.name }}</code>
+              (see <a href="/runs">Runs</a>, or the button below).
+            </p>
+          {% elif p.name == "youtube" %}
+            <div class="field field--wide">
+              <label for="title-youtube">
+                Title
+                {% if p.config %}
+                  <span class="char-counter" data-target="title-youtube" data-max="60">0/60</span>
+                {% endif %}
+              </label>
+              <input type="text" id="title-youtube" value="{{ p.rendition.title or '' }}">
+            </div>
+            <div class="field field--wide">
+              <label for="body-youtube">Description</label>
+              <textarea id="body-youtube" rows="8">{{ p.rendition.body }}</textarea>
+            </div>
+            <div class="field field--wide">
+              <label for="chapters-youtube">Chapters (one per line, <code>MM:SS Label</code>)</label>
+              <textarea id="chapters-youtube" rows="4">{{ p.rendition.chapters | join("\n") }}</textarea>
+            </div>
+            <p>
+              <button class="save-btn" data-platform="youtube">Save YouTube</button>
+              <span class="save-status text-muted" data-platform="youtube"></span>
+            </p>
+          {% else %}
+            <div class="field field--wide">
+              <label for="body-{{ p.name }}">
+                Body
+                {% if p.config %}
+                  <span class="char-counter" data-target="body-{{ p.name }}" data-max="{{ p.config.max_chars }}"
+                    >0/{{ p.config.max_chars }}</span>
+                {% endif %}
+              </label>
+              <textarea id="body-{{ p.name }}" rows="8">{{ p.rendition.body }}</textarea>
+            </div>
+            {% if not p.config or not p.config.links_in_body %}
+              <div class="field field--wide">
+                <label for="first_comment-{{ p.name }}">First comment (carries the UTM'd link)</label>
+                <textarea id="first_comment-{{ p.name }}" rows="3">{{ p.rendition.first_comment or '' }}</textarea>
+              </div>
+            {% endif %}
+            <p>
+              <button class="save-btn" data-platform="{{ p.name }}">Save {{ p.name | capitalize }}</button>
+              <span class="save-status text-muted" data-platform="{{ p.name }}"></span>
+            </p>
           {% endif %}
-        </label><br>
-        <input type="text" id="title-youtube" style="width:100%;" value="{{ p.rendition.title or '' }}">
-      </p>
-      <p>
-        <label for="body-youtube">Description</label><br>
-        <textarea id="body-youtube" rows="8" style="width:100%; font-family:monospace;"
-        >{{ p.rendition.body }}</textarea>
-      </p>
-      <p>
-        <label for="chapters-youtube">Chapters (one per line, <code>MM:SS Label</code>)</label><br>
-        <textarea id="chapters-youtube" rows="4" style="width:100%; font-family:monospace;"
-        >{{ p.rendition.chapters | join("\n") }}</textarea>
-      </p>
-      <p>
-        <button class="save-btn" data-platform="youtube">Save YouTube</button>
-        <span class="save-status" data-platform="youtube"></span>
-      </p>
-    {% else %}
-      <p>
-        <label for="body-{{ p.name }}">
-          Body
-          {% if p.config %}
-            <span class="char-counter" data-target="body-{{ p.name }}" data-max="{{ p.config.max_chars }}"
-              >0/{{ p.config.max_chars }}</span>
-          {% endif %}
-        </label><br>
-        <textarea id="body-{{ p.name }}" rows="8" style="width:100%; font-family:monospace;"
-        >{{ p.rendition.body }}</textarea>
-      </p>
-      {% if not p.config or not p.config.links_in_body %}
-        <p>
-          <label for="first_comment-{{ p.name }}">First comment (carries the UTM'd link)</label><br>
-          <textarea id="first_comment-{{ p.name }}" rows="3" style="width:100%; font-family:monospace;"
-          >{{ p.rendition.first_comment or '' }}</textarea>
-        </p>
-      {% endif %}
-      <p>
-        <button class="save-btn" data-platform="{{ p.name }}">Save {{ p.name | capitalize }}</button>
-        <span class="save-status" data-platform="{{ p.name }}"></span>
-      </p>
-    {% endif %}
-  {% endfor %}
-
-  <h2>Assets</h2>
-  {% if not asset_files %}
-    <p class="empty-state">No staged assets yet. Run <code>ce assets {{ piece.id }}</code>.</p>
-  {% else %}
-    <div style="display:flex; flex-wrap:wrap; gap:1rem;">
-      {% for f in asset_files %}
-        <figure style="margin:0;">
-          <img src="/pieces/{{ piece.id }}/assets/{{ f }}"
-               style="max-width:200px; max-height:150px; display:block; border:1px solid #8888; border-radius:4px;">
-          <figcaption style="font-size:0.8rem; color:#888;">{{ f }}</figcaption>
-        </figure>
+        </div>
       {% endfor %}
     </div>
-  {% endif %}
 
-  <h2>Package preview</h2>
-  {% if not has_package %}
-    <p class="empty-state">
-      Not packaged yet. Run <code>ce package {{ piece.id }}</code> below to produce
-      <code>outbox/{{ piece.id }}/REVIEW.html</code>.
-    </p>
-  {% else %}
-    <p>This is the literal <code>REVIEW.html</code> the last <code>ce package</code> run produced.</p>
-    <iframe src="/pieces/{{ piece.id }}/renditions/review/"
-            style="width:100%; height:640px; border:1px solid #8888; border-radius:6px;"></iframe>
-  {% endif %}
+    <div>
+      <h2>Assets</h2>
+      {% if not asset_files %}
+        <p class="empty-state">No staged assets yet. Run <code>ce assets {{ piece.id }}</code>.</p>
+      {% else %}
+        <div class="card asset-strip">
+          {% for f in asset_files %}
+            <figure>
+              <img src="/pieces/{{ piece.id }}/assets/{{ f }}">
+              <figcaption>{{ f }}</figcaption>
+            </figure>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
 
-  <h2>Actions</h2>
-  <p>
-    <button class="run-btn" data-command="render">Run render</button>
-    <button class="run-btn" data-command="package">Run package</button>
-    <span id="run-error" style="color:#c33;"></span>
-  </p>
+    <div>
+      <h2>Package preview</h2>
+      {% if not has_package %}
+        <p class="empty-state">
+          Not packaged yet. Run <code>ce package {{ piece.id }}</code> below to produce
+          <code>outbox/{{ piece.id }}/REVIEW.html</code>.
+        </p>
+      {% else %}
+        <p class="text-muted">This is the literal <code>REVIEW.html</code> the last <code>ce package</code> run produced.</p>
+        <iframe src="/pieces/{{ piece.id }}/renditions/review/" class="review-frame"></iframe>
+      {% endif %}
+    </div>
 
-  <h3>Publish site</h3>
-  <p>
-    <label>
-      <input type="checkbox" id="publish-confirm">
-      This pushes to <code>identity.site_repo</code> (a real <code>git push</code>). I want to proceed.
-    </label>
-  </p>
-  <p>
-    <button id="publish-btn" disabled>Publish site</button>
-    <span id="publish-error" style="color:#c33;"></span>
-  </p>
+    <div class="card">
+      <h2 style="margin-top:0;">Actions</h2>
+      <p>
+        <button class="run-btn" data-command="render">Run render</button>
+        <button class="run-btn" data-command="package">Run package</button>
+        <span id="run-error" class="error-text"></span>
+      </p>
 
-  <h3>Record a manual post</h3>
-  <p>Writes local data only (<code>data/posted.yml</code>) -- not confirm-gated.</p>
-  {% for name in ("linkedin", "facebook", "youtube") %}
-    <p>
-      <label for="posted-url-{{ name }}">{{ name | capitalize }} URL</label>
-      <input type="text" id="posted-url-{{ name }}" placeholder="https://..." style="width:20rem;">
-      <button class="posted-btn" data-platform="{{ name }}">Record posted</button>
-      <span class="posted-status" data-platform="{{ name }}"></span>
-    </p>
-  {% endfor %}
+      <h3>Publish site</h3>
+      <div class="checkbox-row" style="margin-bottom: var(--space-3);">
+        <input type="checkbox" id="publish-confirm">
+        <label for="publish-confirm">This pushes to <code>identity.site_repo</code> (a real <code>git push</code>). I want to proceed.</label>
+      </div>
+      <p>
+        <button id="publish-btn" disabled>Publish site</button>
+        <span id="publish-error" class="error-text"></span>
+      </p>
+
+      <h3>Record a manual post</h3>
+      <p class="text-muted">Writes local data only (<code>data/posted.yml</code>) -- not confirm-gated.</p>
+      {% for name in ("linkedin", "facebook", "youtube") %}
+        <div class="posted-row">
+          <label for="posted-url-{{ name }}">{{ name | capitalize }} URL</label>
+          <input type="text" id="posted-url-{{ name }}" placeholder="https://...">
+          <button class="posted-btn" data-platform="{{ name }}">Record posted</button>
+          <span class="posted-status text-muted" data-platform="{{ name }}"></span>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
 
   <script>
     // Live character counters against the exact platform limits `ce render`

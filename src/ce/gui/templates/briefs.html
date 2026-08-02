@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Briefs - {{ project.title }} - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .briefs-table-wrap { overflow-x: auto; }
+  .briefs-table-wrap table { min-width: 62rem; }
+</style>
+{% endblock %}
 {% block content %}
   <p><a href="/projects/{{ project.slug }}">&larr; {{ project.title }}</a></p>
   <h1>Briefs</h1>
@@ -9,58 +15,60 @@
       No briefs yet. Run <code>ce harvest {{ project.slug }}</code>.
     </p>
   {% else %}
-    <table>
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Archetype</th>
-          <th>Demand</th>
-          <th>Evidence</th>
-          <th>Grounding</th>
-          <th>Dedupe</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for brief in briefs %}
-          {% set dropped = brief.status == BriefStatus.DROPPED %}
+    <div class="card briefs-table-wrap">
+      <table>
+        <thead>
           <tr>
-            <td>
-              <strong>{{ brief.title }}</strong><br>
-              <span style="color:#888;">{{ brief.angle }}</span>
-              {% if brief.weakest_point %}
-                <br><span style="color:#888;">weakest point: {{ brief.weakest_point }}</span>
-              {% endif %}
-            </td>
-            <td>{{ brief.archetype.value }}</td>
-            <td>
-              recurrence {{ brief.demand.recurrence }}
-              {% if brief.demand.signals %}
-                <br><span style="color:#888;">{{ brief.demand.signals | join(", ") }}</span>
-              {% endif %}
-            </td>
-            <td>{{ brief.evidence | length }} citation(s)</td>
-            <td>{{ brief.grounding_strength.value }}</td>
-            <td>{{ "%.2f" | format(brief.dedupe_max_similarity) }}</td>
-            <td>
-              <span class="status status-{{ brief.status.value }}">{{ brief.status.value }}</span>
-              {% if brief.risk_flags %}
-                <br><span style="color:#a22;">{{ brief.risk_flags | join("; ") }}</span>
-              {% endif %}
-            </td>
-            <td>
-              <button
-                class="select-btn"
-                data-brief-id="{{ brief.id }}"
-                {% if dropped %}disabled title="dropped -- see risk flags"{% endif %}
-              >Select</button>
-            </td>
+            <th>Title</th>
+            <th>Archetype</th>
+            <th>Demand</th>
+            <th>Evidence</th>
+            <th>Grounding</th>
+            <th>Dedupe</th>
+            <th>Status</th>
+            <th></th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p id="error" style="color: #c33;"></p>
+        </thead>
+        <tbody>
+          {% for brief in briefs %}
+            {% set dropped = brief.status == BriefStatus.DROPPED %}
+            <tr>
+              <td>
+                <strong>{{ brief.title }}</strong><br>
+                <span class="text-muted">{{ brief.angle }}</span>
+                {% if brief.weakest_point %}
+                  <br><span class="text-muted">weakest point: {{ brief.weakest_point }}</span>
+                {% endif %}
+              </td>
+              <td>{{ brief.archetype.value }}</td>
+              <td>
+                recurrence {{ brief.demand.recurrence }}
+                {% if brief.demand.signals %}
+                  <br><span class="text-muted">{{ brief.demand.signals | join(", ") }}</span>
+                {% endif %}
+              </td>
+              <td>{{ brief.evidence | length }} citation(s)</td>
+              <td>{{ brief.grounding_strength.value }}</td>
+              <td>{{ "%.2f" | format(brief.dedupe_max_similarity) }}</td>
+              <td>
+                <span class="status status-{{ brief.status.value }}">{{ brief.status.value }}</span>
+                {% if brief.risk_flags %}
+                  <br><span class="error-text">{{ brief.risk_flags | join("; ") }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <button
+                  class="select-btn"
+                  data-brief-id="{{ brief.id }}"
+                  {% if dropped %}disabled title="dropped -- see risk flags"{% endif %}
+                >Select</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p id="error" class="error-text"></p>
   {% endif %}
 
   <script>

@@ -2,14 +2,15 @@
 {% block title %}Doctor - Content Engine{% endblock %}
 {% block content %}
   <h1>Environment check</h1>
-  <p>Runs the real <code>ce doctor</code> as a subprocess and streams its output below.</p>
+  <p class="text-muted">Runs the real <code>ce doctor</code> as a subprocess and streams its output below.</p>
 
-  <p>
-    <button id="run-btn" onclick="startRun()">Run ce doctor</button>
-    <span id="status"></span>
-  </p>
-
-  <pre class="console" id="console"></pre>
+  <div class="card">
+    <p>
+      <button id="run-btn" onclick="startRun()">Run ce doctor</button>
+      <span id="status"></span>
+    </p>
+    <pre class="console" id="console"></pre>
+  </div>
 
   <script>
     // Plain EventSource, not htmx: htmx has no built-in SSE support without

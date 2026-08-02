@@ -1,0 +1,48 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TD
+    start(["ce verify &lt;piece-id&gt;"])
+    extract["<b>Extract every factual claim</b><br/><span style='font-size:11px'>claim_extract — reads article.md + evidence_context</span>"]
+    start --> extract
+
+    grounded["<b>GROUNDED</b><br/><span style='font-size:11px'>ref resolves to a real git commit or capture id</span>"]
+    external["<b>EXTERNAL</b><br/><span style='font-size:11px'>search + fetch; passes if a source's stance is &quot;supports&quot;</span>"]
+    opinion["<b>OPINION</b><br/><span style='font-size:11px'>never verified — trusted to claim_extract's judgment</span>"]
+    unverifiable["<b>UNVERIFIABLE</b><br/><span style='font-size:11px'>always fails</span>"]
+
+    extract --> grounded & external & opinion & unverifiable
+
+    agg["<b>Aggregate</b><br/><span style='font-family: IBM Plex Mono, monospace; font-size:11px'>verification.json</span>"]
+    grounded & external & opinion & unverifiable --> agg
+
+    gate{"any blocking failure?<br/><span style='font-size:11px'>grounded/external always block</span>"}
+    agg --> gate
+
+    blocked["GateBlocked — exit 2<br/><span style='font-size:11px'>fix the evidence, or --force</span>"]
+    pass_(["verified — continue"])
+
+    gate -- yes --> blocked
+    gate -- no --> pass_
+    blocked -. "--force" .-> pass_
+
+    classDef auto fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef decision fill:#15171b,stroke:#259ae8,color:#ece7dd;
+    classDef final fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+    classDef warn fill:#b7791f1a,stroke:#b7791f,color:#ece7dd;
+
+    class extract,grounded,external,opinion,agg auto;
+    class gate decision;
+    class pass_ final;
+    class unverifiable,blocked warn;

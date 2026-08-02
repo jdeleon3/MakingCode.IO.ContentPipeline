@@ -1,25 +1,70 @@
 {% extends "base.html" %}
 {% block title %}Dashboard - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-4);
+  }
+  .project-card { display: flex; flex-direction: column; gap: var(--space-3); }
+  .project-card__title { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .project-card__title a { color: var(--text); font-weight: 650; text-decoration: none; font-size: 1.02rem; }
+  .project-card__title a:hover { color: var(--accent); }
+  .project-card__meta { display: flex; align-items: center; gap: var(--space-2); font-size: 0.82rem; color: var(--text-faint); }
+  .project-card__tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+</style>
+{% endblock %}
 {% block content %}
   <h1>Projects</h1>
 
   {% if not projects %}
-    <p>No projects yet. Run <code>ce project new &lt;slug&gt; --repo &lt;path&gt;</code> to create one.</p>
+    <div class="empty-state">
+      No projects yet. Run <code>ce project new &lt;slug&gt; --repo &lt;path&gt;</code> to create one.
+    </div>
   {% else %}
-    <table>
-      <thead>
-        <tr><th>Project</th><th>Status</th><th>Started</th><th>Tags</th></tr>
-      </thead>
-      <tbody>
-        {% for project in projects %}
-          <tr>
-            <td><a href="/projects/{{ project.slug }}">{{ project.title }}</a></td>
-            <td><span class="status status-{{ project.status.value }}">{{ project.status.value }}</span></td>
-            <td>{{ project.started_at }}</td>
-            <td>{{ project.tags | join(", ") }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="project-grid">
+      {% for project in projects %}
+        {% set stats = stage_counts[project.slug] %}
+        <div class="card project-card">
+          <div class="project-card__title">
+            <a href="/projects/{{ project.slug }}">{{ project.title }}</a>
+            <span class="status status-{{ project.status.value }}">{{ project.status.value }}</span>
+          </div>
+          <div class="project-card__meta">
+            <code>{{ project.slug }}</code>
+            <span>&middot;</span>
+            <span>started {{ project.started_at }}</span>
+          </div>
+          {% if project.tags %}
+            <div class="project-card__tags">
+              {% for tag in project.tags %}<span class="tag-chip">{{ tag }}</span>{% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="stage-strip">
+            <div class="stage-strip__step {{ 'is-filled' if stats.captures else '' }}">
+              <span class="stage-strip__count">{{ stats.captures }}</span>
+              <span class="stage-strip__label">Captured</span>
+            </div>
+            <div class="stage-strip__connector {{ 'is-filled' if stats.harvested else '' }}"></div>
+            <div class="stage-strip__step {{ 'is-filled' if stats.harvested else '' }}">
+              <span class="stage-strip__count">{{ '✓' if stats.harvested else '–' }}</span>
+              <span class="stage-strip__label">Harvested</span>
+            </div>
+            <div class="stage-strip__connector {{ 'is-filled' if stats.briefs else '' }}"></div>
+            <div class="stage-strip__step {{ 'is-filled' if stats.briefs else '' }}">
+              <span class="stage-strip__count">{{ stats.briefs }}</span>
+              <span class="stage-strip__label">Briefs</span>
+            </div>
+            <div class="stage-strip__connector {{ 'is-filled' if stats.pieces else '' }}"></div>
+            <div class="stage-strip__step {{ 'is-filled' if stats.pieces else '' }}">
+              <span class="stage-strip__count">{{ stats.pieces }}</span>
+              <span class="stage-strip__label">Pieces</span>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
   {% endif %}
 {% endblock %}

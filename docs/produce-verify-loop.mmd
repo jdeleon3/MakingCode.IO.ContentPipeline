@@ -1,0 +1,73 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TD
+    entry(["ce brief select — brief promoted to a piece"])
+    draft["<b>Draft the article</b><br/><span style='font-size:11px'>prompt: article_draft — brand voice + evidence_context (git &amp; research citations) + brief angle → first draft</span>"]
+
+    entry --> draft --> grade
+
+    subgraph loop [" REVISION LOOP — up to max_attempts (config.produce.max_attempts, default 3) "]
+        direction TB
+        grade["<b>Grade the draft</b><br/><span style='font-size:11px'>prompt: article_grade — scores hook / evidence / specificity / voice / cta, weighted (config.produce.grade_weights) → total</span>"]
+        dec1{"total ≥ min_grade?<br/><span style='font-size:11px'>config.produce.min_grade, default 8.0</span>"}
+        revise["<b>Revise the draft</b><br/><span style='font-size:11px'>prompt: article_revise — rewrites against the grader's own top_fixes</span>"]
+        dec2{"attempt &lt; max_attempts?"}
+
+        grade --> dec1
+        dec1 -- "no" --> revise
+        revise --> dec2
+        dec2 -- "yes: re-grade" --> grade
+    end
+
+    dec1 -- "yes: clears the bar" --> write_file
+    dec2 -- "no: limit reached — writes last revision, never re-graded" --> write_file
+
+    write_file["<b>Write article.md + grades.json</b><br/><span style='font-size:11px'>always written either way — sets piece.generated_at (ADR-008)</span>"]
+    manual_edit[/"<b>Operator edits article.md</b><br/><span style='font-size:11px'>the one step the system assumes happens — ADR-008's mtime check confirms it later</span>"/]
+    extract["<b>Extract every factual claim</b><br/><span style='font-size:11px'>prompt: claim_extract — reads article.md + evidence_context → classifies each claim</span>"]
+
+    write_file --> manual_edit -- "ce verify (piece-id)" --> extract
+
+    grounded["<b>GROUNDED</b><br/><span style='font-size:11px'>ref must resolve to a real git commit SHA or capture id — including voice-memo transcripts</span>"]
+    external["<b>EXTERNAL</b><br/><span style='font-size:11px'>search + fetch top 3 hits; passes if any source's stance is &quot;supports&quot;</span>"]
+    opinion["<b>OPINION</b><br/><span style='font-size:11px'>never verified — trusted to claim_extract's own judgment</span>"]
+    unverifiable["<b>UNVERIFIABLE</b><br/><span style='font-size:11px'>always fails — couldn't be placed in any other class</span>"]
+
+    extract --> grounded & external & opinion & unverifiable
+
+    agg["<b>Aggregate → verification.json</b><br/><span style='font-size:11px'>written every time, pass or fail — never silently skipped</span>"]
+    grounded & external & opinion & unverifiable --> agg
+
+    dec3{"any blocking failure?<br/><span style='font-size:11px'>grounded/external always block; unverifiable only if block_on_unverifiable is set</span>"}
+    agg --> dec3
+
+    blocked["<b>GateBlocked — exit 2</b><br/><span style='font-size:11px'>operator reads verification.json, fixes the evidence, or re-runs with --force</span>"]
+    pkg["<b>ce assets → ce render → ce package</b><br/><span style='font-size:11px'>renders staged assets, adapts per-platform copy, assembles the review artifact</span>"]
+    review(["<b>REVIEW.html</b><br/><span style='font-size:11px'>the human QA gate before anything gets published or posted</span>"])
+
+    dec3 -- "yes" --> blocked
+    dec3 -- "no" --> pkg
+    blocked -. "--force" .-> pkg
+    pkg --> review
+
+    classDef auto fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef manual fill:#259ae81a,stroke:#259ae8,color:#ece7dd;
+    classDef warn fill:#b7791f1a,stroke:#b7791f,color:#ece7dd;
+    classDef final fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+
+    class entry,draft,grade,revise,write_file,extract,grounded,external,opinion,agg,pkg auto;
+    class manual_edit manual;
+    class unverifiable,blocked warn;
+    class review final;

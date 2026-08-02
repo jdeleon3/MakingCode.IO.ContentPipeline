@@ -1,55 +1,66 @@
 {% extends "base.html" %}
 {% block title %}Runs - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .runs-table-wrap { overflow-x: auto; }
+</style>
+{% endblock %}
 {% block content %}
   <h1>Pipeline run console</h1>
-  <p>Pick any pipeline stage command and run it as a real <code>ce</code> subprocess.</p>
+  <p class="text-muted">Pick any pipeline stage command and run it as a real <code>ce</code> subprocess.</p>
 
-  <form id="run-form">
-    <p>
-      <label for="command">Command</label><br>
-      <select id="command" name="command">
-        {% for cmd in commands %}
-          <option value="{{ cmd.key }}" data-confirm="{{ cmd.confirm | lower }}"
-                  data-hint="{{ cmd.arg_hint or '' }}">{{ cmd.label }}</option>
-        {% endfor %}
-      </select>
-    </p>
-    <p>
-      <label for="argument" id="argument-label">Argument</label><br>
-      <input type="text" id="argument" name="argument" placeholder="e.g. my-project">
-    </p>
-    <p>
-      <label for="extra">Extra flags (optional, e.g. <code>--force --dry-run</code>)</label><br>
-      <input type="text" id="extra" name="extra">
-    </p>
-    <p id="confirm-row" style="display:none;">
-      <label>
-        <input type="checkbox" id="confirm" name="confirm">
-        This action reaches outside this machine (e.g. a <code>git push</code>). I want to proceed.
-      </label>
-    </p>
-    <p>
-      <button type="submit" id="submit-btn">Run</button>
-      <span id="error" style="color: #c33;"></span>
-    </p>
-  </form>
+  <div class="stack">
+    <div class="card">
+      <form id="run-form">
+        <div class="field">
+          <label for="command">Command</label>
+          <select id="command" name="command">
+            {% for cmd in commands %}
+              <option value="{{ cmd.key }}" data-confirm="{{ cmd.confirm | lower }}"
+                      data-hint="{{ cmd.arg_hint or '' }}">{{ cmd.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="argument" id="argument-label">Argument</label>
+          <input type="text" id="argument" name="argument" placeholder="e.g. my-project">
+        </div>
+        <div class="field">
+          <label for="extra">Extra flags (optional, e.g. <code>--force --dry-run</code>)</label>
+          <input type="text" id="extra" name="extra">
+        </div>
+        <div class="checkbox-row" id="confirm-row" style="display:none; margin-bottom: var(--space-4);">
+          <input type="checkbox" id="confirm" name="confirm">
+          <label for="confirm">This action reaches outside this machine (e.g. a <code>git push</code>). I want to proceed.</label>
+        </div>
+        <p>
+          <button type="submit" id="submit-btn">Run</button>
+          <span id="error" class="error-text"></span>
+        </p>
+      </form>
+    </div>
 
-  <h2>Recent runs</h2>
-  {% if not recent_runs %}
-    <p class="empty-state">No runs yet.</p>
-  {% else %}
-    <table>
-      <thead><tr><th>Run</th><th>Command</th></tr></thead>
-      <tbody>
-        {% for run in recent_runs %}
-          <tr>
-            <td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
-            <td>{{ run.command }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
+    <div>
+      <h2>Recent runs</h2>
+      {% if not recent_runs %}
+        <p class="empty-state">No runs yet.</p>
+      {% else %}
+        <div class="card runs-table-wrap">
+          <table>
+            <thead><tr><th>Run</th><th>Command</th></tr></thead>
+            <tbody>
+              {% for run in recent_runs %}
+                <tr>
+                  <td><a href="/runs/{{ run.run_id }}"><code>{{ run.run_id }}</code></a></td>
+                  <td>{{ run.command }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
 
   <script>
     const select = document.getElementById("command");
@@ -68,7 +79,7 @@
       const opt = select.options[select.selectedIndex];
       argLabel.textContent = opt.dataset.hint ? `Argument (${opt.dataset.hint})` : "Argument (not used by this command)";
       argInput.disabled = !opt.dataset.hint;
-      confirmRow.style.display = selectedNeedsConfirm() ? "block" : "none";
+      confirmRow.style.display = selectedNeedsConfirm() ? "flex" : "none";
       // Disabled until the operator explicitly checks the box -- this is
       // what stops `ce publish site` from being submitted without it
       // (WP-19's Done-when line), enforced again server-side in /runs/start.

@@ -148,6 +148,52 @@ def test_plan_includes_hero_image_when_staged(tmp_path):
     assert built.hero_source == assets_dir / "hero.jpg"
 
 
+def test_plan_rewrites_and_stages_a_body_image(tmp_path):
+    data_root = tmp_path / "data"
+    piece = _piece()
+    assets_dir = store.piece_dir(data_root, "test-proj", piece.id) / "assets"
+    assets_dir.mkdir(parents=True)
+    (assets_dir / "diagram-foo.png").write_bytes(b"fake-diagram-bytes")
+    article = _ARTICLE + "\n![Pipeline diagram](assets/diagram-foo.png)\n"
+
+    built = site.plan(
+        piece, _brief(), _project(), article, data_root=data_root, site_url="https://example.com"
+    )
+
+    assert "![Pipeline diagram](../../assets/blog/duckdb-memory-diagram-foo.png)" in (
+        built.content_text
+    )
+    assert "assets/diagram-foo.png)" not in built.content_text
+    assert built.body_images == [
+        (assets_dir / "diagram-foo.png", Path("src/assets/blog/duckdb-memory-diagram-foo.png"))
+    ]
+
+
+def test_plan_raises_a_clear_error_when_a_referenced_body_image_is_missing(tmp_path):
+    data_root = tmp_path / "data"
+    article = _ARTICLE + "\n![Missing](assets/nope.png)\n"
+
+    with pytest.raises(PublishError, match="assets/nope.png"):
+        site.plan(
+            _piece(), _brief(), _project(), article, data_root=data_root,
+            site_url="https://example.com",
+        )
+
+
+def test_plan_leaves_remote_and_absolute_image_paths_untouched(tmp_path):
+    data_root = tmp_path / "data"
+    article = _ARTICLE + "\n![Remote](https://example.com/x.png)\n![Absolute](/favicon.png)\n"
+
+    built = site.plan(
+        _piece(), _brief(), _project(), article, data_root=data_root,
+        site_url="https://example.com",
+    )
+
+    assert "![Remote](https://example.com/x.png)" in built.content_text
+    assert "![Absolute](/favicon.png)" in built.content_text
+    assert built.body_images == []
+
+
 def test_plan_content_text_has_no_duplicate_heading():
     built = site.plan(
         _piece(),
@@ -439,6 +485,47 @@ def test_publish_end_to_end_commits_pushes_and_records_the_published_url(tmp_pat
     reloaded = store.read_piece(data_root, project.slug, piece.id)
     assert reloaded.published.url == "https://example.com/blog/duckdb-memory"
     assert reloaded.status == PieceStatus.PUBLISHED
+
+
+def test_publish_copies_and_commits_a_body_image(tmp_path):
+    data_root = tmp_path / "data"
+    project, brief, piece = _write_fixture(data_root, with_hero=False)
+    assets_dir = store.piece_dir(data_root, project.slug, piece.id) / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "diagram-foo.png").write_bytes(b"fake-diagram-bytes")
+    article_path = store.piece_dir(data_root, project.slug, piece.id) / "article.md"
+    article_path.write_text(
+        _ARTICLE + "\n![Pipeline diagram](assets/diagram-foo.png)\n", encoding="utf-8"
+    )
+    site_repo = _init_site_repo(tmp_path)
+
+    http_client = _QueueHttpClient([site.HttpResponse(200, _OG_HTML_COMPLETE)])
+
+    site.publish(
+        piece,
+        brief,
+        project,
+        data_root=data_root,
+        site_repo=site_repo,
+        site_url="https://example.com",
+        http_client=http_client,
+        poll_timeout_sec=5,
+        poll_interval_sec=0,
+        sleep=lambda _: None,
+    )
+
+    copied = site_repo / "src" / "assets" / "blog" / "duckdb-memory-diagram-foo.png"
+    assert copied.read_bytes() == b"fake-diagram-bytes"
+
+    content_file = site_repo / "src" / "content" / "blog" / "duckdb-memory.md"
+    assert "../../assets/blog/duckdb-memory-diagram-foo.png" in content_file.read_text(
+        encoding="utf-8"
+    )
+
+    status = subprocess.run(  # noqa: S603, S607
+        ["git", "status", "--porcelain"], cwd=site_repo, capture_output=True, text=True, check=True
+    )
+    assert status.stdout.strip() == ""  # the copied image was committed too, not left untracked
 
 
 def test_publish_raises_loudly_when_og_tags_never_appear(tmp_path):

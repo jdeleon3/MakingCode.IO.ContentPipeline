@@ -2,6 +2,10 @@
 
 ## §1 — Standing
 
+*(Career started 2012 — the "years in enterprise software" figures below are a snapshot. The site
+itself computes this live from that start year (`src/consts.ts`); update the numbers in this
+document by hand when they drift enough to matter.)*
+
 **I have standing to write about:**
 - 14 years in enterprise software, insurance industry — C# microservices for carrier/web integrations, promoted developer → Lead Software Developer → Software Engineer.
 - 5 years as Java Technical Lead directing an event-driven Claims System implementation with the software provider.
@@ -44,7 +48,7 @@
 
 ## §4 — Scope
 
-**In scope:** translating experienced-engineer skills into AI/ML and business automation; honest build logs of real projects (what actually happened, not tutorial gloss); AI-assisted development practice (prompting, reviewing, evaluating — not just "AI wrote it"); the career-transition angle for people well past entry-level.
+**In scope:** translating experienced-engineer skills into AI/ML and business automation; honest field notes on real projects (what actually happened, not tutorial gloss); AI-assisted development practice (prompting, reviewing, evaluating — not just "AI wrote it"); the career-transition angle for people well past entry-level.
 
 **Out of scope:** generic "AI will change everything" hype, career advice unrelated to tech, crypto, politics.
 
@@ -61,6 +65,7 @@
 | "There are several considerations to keep in mind" | "Here's what actually matters. The rest is noise." |
 | "This can be a game-changer for your workflow" | "This saved me real time. It might not for you — here's what would have to be true first." |
 | "Let's dive into the details" | *(cut entirely — just start)* |
+| "14 years in enterprise software. Now I'm writing down what actually translates into AI and automation." | "The real record of turning a long enterprise career toward AI and automation." |
 
 **Three sentences that sound like me:**
 1. "Most demonstrations wouldn't fly in real-world application, a lot of people are just feeding you enough to get you to sign up for something from them."
@@ -87,6 +92,12 @@
 - Second person for instructions, first person for experience. Never "we" for a solo project.
 - No urgency/FOMO framing ("act now or get left behind") — say what actually changed and let the reader decide.
 - No vague "upskill" advice without a concrete next action attached.
+- Don't lead a piece with the credential number as its very first words ("14 years in enterprise
+  software...") — it reads like a resume opener, not a record. State what the piece actually is
+  first; let the number land mid-sentence instead.
+- Frame the career shift as a journey with real wins and wrong turns, not a translation exercise.
+  "What transfers/translates/applies" reads like a lookup table; the honest version has dead ends in
+  it.
 
 ---
 
@@ -120,6 +131,8 @@ not just X, but Y              it's not about X — it's about Y
 - "stay ahead of the curve" (unqualified — earn it with a specific or cut it)
 - "unlock your potential" / "level up" / other bootcamp-marketing language
 - anything that reads like a funnel toward a course, newsletter, or signup, even implicitly
+- "the parts still unresolved" / "still unresolved" (says nothing concrete — name the specific
+  unknown instead, e.g. "what I still don't know")
 
 ---
 

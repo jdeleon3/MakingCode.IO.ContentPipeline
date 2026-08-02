@@ -43,8 +43,26 @@ def _harvest_summary(data_root: Path, slug: str) -> dict[str, bool]:
 def dashboard(request: Request) -> HTMLResponse:
     data_root = Path("data")
     projects = sorted(store.list_projects(data_root), key=lambda p: p.slug)
+
+    # Per-project pipeline-stage counts for the dashboard's stage-strip --
+    # same reads `project_detail` below already does per-project, just
+    # gathered for every project up front since the card grid shows all of
+    # them at a glance. Still read-only, no subprocess -- consistent with
+    # this module's own docstring.
+    stage_counts = {
+        project.slug: {
+            "captures": len(store.list_captures(data_root, project.slug)),
+            "harvested": _harvest_summary(data_root, project.slug)["harvested"],
+            "briefs": len(store.read_briefs(data_root, project.slug)),
+            "pieces": len(store.list_pieces(data_root, project.slug)),
+        }
+        for project in projects
+    }
+
     templates = request.app.state.templates
-    return templates.TemplateResponse(request, "dashboard.html", {"projects": projects})
+    return templates.TemplateResponse(
+        request, "dashboard.html", {"projects": projects, "stage_counts": stage_counts}
+    )
 
 
 @router.get("/projects/{slug}")

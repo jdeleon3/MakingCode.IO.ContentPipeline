@@ -1,9 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Run {{ run_id }} - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .run-header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .run-header h1 { margin: 0; font-family: var(--font-mono); font-size: 1.1rem; }
+</style>
+{% endblock %}
 {% block content %}
   <p><a href="/runs">&larr; back to runs</a></p>
-  <h1><code>{{ command_label }}</code></h1>
-  <p>Run <code>{{ run_id }}</code> <span id="status"></span></p>
+  <div class="run-header">
+    <h1><code>{{ command_label }}</code></h1>
+    <span id="status"></span>
+  </div>
+  <p class="text-muted">Run <code>{{ run_id }}</code></p>
 
   <pre class="console" id="console">{% if static_content %}{{ static_content }}{% endif %}</pre>
 

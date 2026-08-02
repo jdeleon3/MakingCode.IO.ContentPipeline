@@ -89,13 +89,87 @@ WP-17–WP-21.
   is now wired into the Diagrams section too, not just Evidence.** Closes the
   gap that entry's own text flagged ("flagged as a likely next ask rather
   than built speculatively for `diagram` now") — the backend route was
-  already kind-parameterized and needed no change. `pieces.html`'s Diagrams
-  section gained a filename + textarea + "Save diagram" control mirroring
-  Evidence's existing one, wired to the same generic `POST
-  .../assets/stage-text/<kind>` endpoint. New tests in
+  already kind-parameterized and needed no change. `pieces.html` gained a
+  filename + textarea + "Save diagram" control mirroring Evidence's existing
+  one; the single-purpose `evidencePasteBtn` JS handler was generalized into
+  a `.paste-btn` class handler (`data-kind`/`data-filename-input`/
+  `data-content-input`), the same generic-class-plus-`data-*` shape
+  `.stage-btn`/`.unstage-btn` already used, so both sections now share one
+  code path instead of Evidence having a bespoke one. New tests in
   `tests/test_gui_assets.py` cover a pasted `.mmd` diagram round-tripping
   identically to an uploaded one, and the extension allow-list rejecting a
-  non-`.mmd` paste. Full suite and `ruff check` both green.
+  non-`.mmd` paste. Full suite (549 tests, 1 pre-existing skip) and
+  `ruff check` both green.
+
+- **2026-08-01, GUI-wide visual redesign (cross-cutting, `gui/templates/base.html`
+  + every other template under `gui/templates/`), verified and one bug fixed
+  this session.** Found already implemented in the working tree at session
+  start — uncommitted, with no `STATUS.md` entry recording what it was or
+  why. This entry is written from reading every template diff directly and
+  then actually driving a live `ce gui` instance in a browser end to end
+  (dashboard, project detail, briefs, piece detail, renditions, runs
+  console, and a real `ce doctor` SSE run) against this repo's own
+  `content-engine` project data — full 541-test suite and `ruff check` both
+  green throughout, zero browser console errors on any screen.
+  - `base.html` gained a full design-token system (light/dark CSS custom
+    properties following `prefers-color-scheme`, no manual toggle) and
+    shared primitives — card, table, form control, status badge, console —
+    used consistently across every screen, replacing the previous
+    bare-browser-defaults styling. Top nav is now sticky with
+    active-tab underlining (`aria-current` driven off `request.url.path`).
+  - `dashboard.html`'s project cards gained a **stage strip**
+    (Captured &rarr; Harvested &rarr; Briefs &rarr; Pieces, a segment fills
+    once that stage has produced anything at all), backed by a new
+    `dashboard.py::dashboard` per-project `stage_counts` dict — plain reads
+    of `store.list_captures`/`list_pieces`/etc., no subprocess, same
+    read-only shape the route already had. `project_detail.html`'s existing
+    header now renders the identical strip.
+  - `pieces.html` renders the latest grading attempt as a 5-axis radar
+    (Hook/Evidence/Specificity/Voice/CTA) via a newly vendored
+    `gui/static/chart.min.js` (Chart.js v4.5.1 UMD build) — same "vendor a
+    static file, no new Python dependency" precedent as WP-17's
+    `htmx.min.js`, so no new `doctor.py` entry. The script tag is
+    conditional on `attempts` being non-empty, so a piece with no grading
+    history never loads it; canvas colors are read from the page's own CSS
+    custom properties at draw time so the chart matches whichever theme
+    `prefers-color-scheme` picked (Chart.js itself has no idea about that
+    media query).
+  - **Bug found and fixed this session**: `project_detail.html`'s piece-list
+    rows (`.piece-list li`) used `display:flex; align-items:center` between
+    the piece link and its status badge — fine for a short slug, but a long
+    slug wraps across multiple lines and the vertically-centered badge then
+    overlapped the wrapped text instead of sitting on the first line.
+    Reproduced against the real `content-engine` project's `pc-0001` (a
+    genuinely long slug) in the browser; fixed by switching that row to
+    `align-items: flex-start` with `flex-shrink: 0` on the badge, confirmed
+    by reloading in the browser.
+
+- **2026-07-29, `publish/site.py` (bug fix, post-WP-14) · inline body images
+  in `article.md` (`![alt](assets/<file>)`) were being published as broken
+  links — fixed.** Found while answering an operator question about how to
+  reference manually-added images when editing an article. `publish()` was
+  writing the article body into the site repo verbatim; only the hero image
+  (WP-11's `assets/hero.<ext>`) was ever copied and path-rewritten, so any
+  other image reference in the body pointed at a bare `assets/...` path that
+  (a) was never copied into `identity.site_repo` and (b) wouldn't resolve
+  from `src/content/blog/<slug>.md` even if it had been — confirmed against
+  the real site repo (`C:\Projects\MakingCode.IO.Site`): both existing posts
+  use only `heroImage`, and its `content.config.ts`/`astro.config.mjs`
+  resolve relative Markdown image paths against the content file's own
+  location. `plan()` now runs `_rewrite_body_images`, reusing ADR-006's own
+  `assets/<file>` relative-path convention (already used by
+  `package/review_html.py`): each reference is verified against the piece's
+  real `assets/` dir (a clear `PublishError` naming the missing file, not a
+  silent broken link), staged for copy to `src/assets/blog/<slug>-<file>`
+  (slug-namespaced for the same collision reason as the hero), and rewritten
+  in the body to `../../assets/blog/<slug>-<file>`. `publish()` copies and
+  commits each one alongside the hero; `--dry-run` prints a `would copy`
+  line per image, matching the existing hero line. Absolute URLs and
+  site-absolute (`/...`) paths are left untouched. New tests in
+  `test_publish_site.py` cover the rewrite, the missing-file error, the
+  untouched-passthrough cases, and one real end-to-end `publish()` proving
+  the image is actually committed. Full suite (541 tests, 1 pre-existing
+  skip) and `ruff check` both green after the fix.
 
 - **2026-07-29, `gui/routes/assets.py` (new, post-WP-22) · the GUI can now
   stage `ce assets`' four hand-placed inputs (hero image, thumbnail
@@ -1383,6 +1457,10 @@ WP-17–WP-21.
   `YouTubeDataApiClient`'s real transport are untested against live
   services as a result (tests fake both clients — see STATUS.md
   deviations); functionally complete, just not yet exercised for real.
+  Umami side of this is now moot: Umami Cloud (the only option available —
+  no self-host host) gates API key issuance behind a paid plan, so
+  `UMAMI_API_KEY` can't actually be obtained. See **Open questions** below
+  for the planned GoatCounter swap (not yet started).
 - **`config.sweep.topics`/`rss_feeds` (WP-16):** `config/engine.yml`'s
   defaults (DuckDB, AI agents, LLM evals, data engineering, Astro; two
   Reddit subreddit feeds) are this session's own illustrative starting
@@ -1401,4 +1479,77 @@ WP-17–WP-21.
 
 ## Open questions
 
-None currently open.
+- **Replace Umami with GoatCounter for site-click metrics (WP-15 rework, not yet started).**
+  Decided 2026-07-29: operator is on Umami Cloud (no self-hosted instance available), and
+  Umami Cloud now gates API key issuance behind a paid plan — `UMAMI_API_KEY` can't be
+  obtained on the free tier, so `HttpxUmamiClient` (`src/ce/metrics/umami.py`) can never be
+  exercised for real as currently designed. Planned replacement: **GoatCounter**, which has a
+  genuinely free hosted tier with unrestricted bearer-token API access
+  (`GET /api/v0/stats/hits?path=...`, per-URL hit counts) — close enough in shape to the
+  existing `UmamiClient` protocol to be a near-drop-in swap. Considered and rejected: Umami
+  self-host (no host available right now), Plausible Cloud (no free tier), PostHog Cloud
+  (free tier is generous but a heavier event-model integration than this WP needs — revisit
+  only if richer analytics become a goal beyond per-URL click counts).
+  Scope when this is picked up: `config/engine.yml` (`analytics.umami` → `analytics.goatcounter`,
+  `api_url`/`website_id` → `api_url`/`site_code` or equivalent), `src/ce/config.py`
+  (`UmamiConfig` → `GoatCounterConfig`), new `src/ce/metrics/goatcounter.py` replacing
+  `metrics/umami.py` (keep the existing `UmamiClient`-shaped protocol, just rename/retarget),
+  `src/ce/metrics/pull.py`'s `umami_client` param, `src/ce/doctor.py` (`UMAMI_API_KEY` →
+  `GOATCOUNTER_API_KEY`), and every test currently faking `UmamiClient`
+  (`test_metrics_umami.py`, `test_metrics_pull.py`, `test_config.py`, `test_cli.py`,
+  `test_project.py`, `test_llm_gateway.py`, `test_gui_briefs.py`, `test_gui_runs.py`,
+  `conftest.py`). Log as a deviation against WP-15 (not a new WP) once done, per this repo's
+  one-refactor-at-a-time discipline.
+
+- **Auto-generate architecture / process-flow diagrams of the harvested project's own
+  codebase as part of `ce harvest` (new capability, not yet started).**
+  Decided 2026-08-01, via operator interview on scope. Motivation: this session hand-built six
+  Mermaid diagrams (`docs/*-flow.mmd` + rendered `.svg`) describing `content-engine`'s own
+  pipeline stages and safety gates, as a one-off documentation exercise — the idea is to make
+  that a repeatable harvest-time step for *any* project this pipeline harvests, not just this
+  one, both as an operator-facing artifact and as real grounding material for brief generation
+  (a project's own architecture/flow is exactly the kind of concrete detail
+  `harvest/inventory.py`'s dedupe/specificity checks reward, and today nothing in the harvest
+  pipeline looks at the target repo's code structure at all — only `harvest/git.py`'s commit
+  history and `harvest/research.py`'s external search).
+  - **Generation method: LLM-generated, not deterministic static analysis.** A new harvest
+    sub-step reads the target project's repo (already checked out and accessible the same way
+    `harvest/git.py` reads it) and prompts the LLM gateway to produce Mermaid source for an
+    architecture diagram (major modules/components and how they relate) plus one or more
+    process-flow diagrams (the project's key work/data flows) — same approach used to hand-build
+    this session's `docs/*.mmd`, now automated per-project rather than a manual one-off. A plain
+    import/call-graph parser was considered and rejected: it could produce an accurate dependency
+    graph but not a narrative process-flow diagram, which is the more valuable half of this for a
+    content-angle-hunting pipeline.
+  - **Output location: new harvest artifact, alongside `git.json`/`research.json`/`inventory.md`**
+    — e.g. `harvest_dir/diagrams/*.mmd` (LLM output) rendered through the existing
+    `assets/diagram.py::MermaidCliRenderer`/`DiagramRenderer` Protocol (WP-11, already a required
+    `doctor.py` dependency via `mermaid-cli` — no new dependency needed). Note `MermaidCliRenderer`
+    currently targets PNG output (TDD 10.7's literal wording); this session's manually-made
+    `docs/*.svg` files were produced outside that module, so widening it to SVG (or adding a
+    parallel render call with a different output extension) is in scope if SVG is wanted here too.
+  - **Also feeds brief generation.** `harvest/inventory.py::generate()` already assembles prompt
+    context through a set of `_format_*_context()` plain-text-formatting functions
+    (`_format_git_context`, `_format_research_context`, etc., `inventory.py:88-196`) merged into
+    one dict passed to the `brief_generate` prompt. A new `_format_diagrams_context()` in the same
+    shape — likely the raw Mermaid source plus a short LLM-written caption per diagram, not a
+    rendered image (the `brief_generate` LLM call has no vision input today) — would slot in
+    alongside the existing context blocks with no prompt-file restructuring beyond adding one more
+    context section, matching how brief-scoped research (2026-07-29 deviation, above) was threaded
+    through the same call without changing the prompt's overall shape.
+  - **Trigger: every `ce harvest` run, full regeneration each time** — no incremental
+    "only if code changed since last harvest" diffing for v1, matching the existing
+    always-regenerate pattern `inventory.md`/`performance.md` already use elsewhere in this
+    codebase. Revisit only if the LLM cost or run time of always regenerating becomes a real
+    problem in practice.
+  - Scope when this is picked up: new `src/ce/harvest/diagrams.py` (the new LLM call + repo-read
+    logic, same module shape as `harvest/research.py`), a new prompt file (e.g.
+    `prompts/diagram_generate.md`, following the existing `prompts/commit_summarize.md`
+    naming/shape — the closest existing precedent for "summarize something about the repo itself"),
+    `cli.py::harvest` wired to call it alongside the existing git-extract/research/inventory steps,
+    `harvest/inventory.py`'s `generate()` gaining a `_format_diagrams_context()` call and a new
+    prompt-context key, `store.py` gaining a path helper for the new `diagrams/` location, and
+    `assets/diagram.py` if PNG-only needs widening to SVG. Log as a new numbered WP (its own
+    `docs/TDD-content-engine.md` §12 entry, since it's new pipeline behavior, not a rework of an
+    existing WP) once scoped in full — same "invented design, no TDD section to derive it from"
+    shape as WP-16's sweep module.

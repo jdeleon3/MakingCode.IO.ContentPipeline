@@ -1,0 +1,34 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart LR
+    capture(["capture"]) --> harvest["harvest"] --> produce["produce"] --> verify["verify"] --> render["render"] --> package["package"] --> publish["publish"]
+
+    g1{"G1<br/><span style='font-size:11px'>repo allow-list</span>"}
+    g2{"G2<br/><span style='font-size:11px'>gitleaks secret scan</span>"}
+    g3{"G3<br/><span style='font-size:11px'>dedupe similarity</span>"}
+    g4{"G4<br/><span style='font-size:11px'>claim verification</span>"}
+
+    g1 -.-> harvest
+    g2 -.-> harvest
+    g3 -.-> harvest
+    g4 -.-> verify
+
+    classDef stage fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef gate fill:#15171b,stroke:#259ae8,color:#ece7dd,stroke-dasharray: 3 3;
+    classDef bookend fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+
+    class harvest,produce,verify,render,package stage;
+    class g1,g2,g3,g4 gate;
+    class capture,publish bookend;

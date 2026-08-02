@@ -1,0 +1,46 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TD
+    entry(["brief selected"])
+    draft["<b>Draft the article</b><br/><span style='font-size:11px'>prompt: article_draft</span>"]
+
+    entry --> draft --> grade
+
+    subgraph loop [" up to max_attempts (default 3) "]
+        direction TB
+        grade["<b>Grade the draft</b><br/><span style='font-size:11px'>prompt: article_grade → weighted total</span>"]
+        dec1{"total ≥ min_grade?<br/><span style='font-size:11px'>default 8.0</span>"}
+        revise["<b>Revise the draft</b><br/><span style='font-size:11px'>prompt: article_revise — against the grader's own fixes</span>"]
+        dec2{"attempt &lt; max_attempts?"}
+
+        grade --> dec1
+        dec1 -- "no" --> revise --> dec2
+        dec2 -- "yes: re-grade" --> grade
+    end
+
+    dec1 -- "yes: clears the bar" --> write
+    dec2 -- "no: limit reached" --> write
+
+    write["<b>Write article.md + grades.json</b>"]
+
+    classDef auto fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef decision fill:#15171b,stroke:#259ae8,color:#ece7dd;
+    classDef final fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+
+    class entry,draft,grade,revise auto;
+    class dec1,dec2 decision;
+    class write final;
+
+    style loop fill:none,stroke:#165c8b,stroke-width:1.5px,stroke-dasharray: 5 5;

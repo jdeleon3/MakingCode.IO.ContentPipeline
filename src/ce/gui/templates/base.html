@@ -6,55 +6,373 @@
   <title>{% block title %}Content Engine{% endblock %}</title>
   <script src="/static/htmx.min.js"></script>
   <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, Segoe UI, sans-serif;
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 1.5rem;
-      line-height: 1.5;
+    /* ---------------------------------------------------------------------
+       Design tokens. Light palette is the default (`:root`); the dark
+       palette overrides via `prefers-color-scheme` -- this GUI has no theme
+       toggle, it follows the OS setting like the previous plain
+       `color-scheme: light dark` did, just with a real palette on both
+       sides now instead of unstyled browser defaults.
+       ------------------------------------------------------------------ */
+    :root {
+      color-scheme: light dark;
+
+      --bg: #f6f7fb;
+      --bg-elevated: #ffffff;
+      --bg-sunken: #eceef4;
+      --border: #dde1eb;
+      --border-strong: #c7cce0;
+      --text: #161b26;
+      --text-muted: #5b6478;
+      --text-faint: #8891a3;
+
+      --accent: #0891b2;
+      --accent-strong: #0e7490;
+      --accent-soft: rgba(8, 145, 178, 0.10);
+      --accent-contrast: #ffffff;
+
+      --success: #0f9d58;
+      --success-soft: rgba(15, 157, 88, 0.12);
+      --warning: #b45309;
+      --warning-soft: rgba(180, 83, 9, 0.12);
+      --danger: #c0362c;
+      --danger-soft: rgba(192, 54, 44, 0.12);
+      --info: #3b5bdb;
+      --info-soft: rgba(59, 91, 219, 0.10);
+      --neutral-soft: rgba(91, 100, 120, 0.12);
+
+      --shadow-sm: 0 1px 2px rgba(20, 24, 38, 0.05);
+      --shadow: 0 1px 2px rgba(20, 24, 38, 0.06), 0 8px 24px rgba(20, 24, 38, 0.06);
+
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem;
+      --space-4: 1rem; --space-5: 1.5rem; --space-6: 2rem; --space-8: 3rem;
+      --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
+
+      --font-ui: -apple-system, "Segoe UI Variable", "Segoe UI", "Inter", system-ui, sans-serif;
+      --font-mono: "Cascadia Code", "SF Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
     }
-    nav { display: flex; gap: 1rem; margin-bottom: 1.5rem; font-weight: 600; }
-    nav a { text-decoration: none; }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0a0e17;
+        --bg-elevated: #121826;
+        --bg-sunken: #0d1220;
+        --border: #232b3d;
+        --border-strong: #333e56;
+        --text: #e7ebf3;
+        --text-muted: #97a1b5;
+        --text-faint: #5d6577;
+
+        --accent: #22d3ee;
+        --accent-strong: #67e8f9;
+        --accent-soft: rgba(34, 211, 238, 0.13);
+        --accent-contrast: #052a30;
+
+        --success: #34d399;
+        --success-soft: rgba(52, 211, 153, 0.14);
+        --warning: #fbbf24;
+        --warning-soft: rgba(251, 191, 36, 0.14);
+        --danger: #f87171;
+        --danger-soft: rgba(248, 113, 113, 0.14);
+        --info: #60a5fa;
+        --info-soft: rgba(96, 165, 250, 0.13);
+        --neutral-soft: rgba(151, 161, 181, 0.14);
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: var(--space-6) var(--space-5) var(--space-8);
+    }
+
+    h1, h2, h3 { font-weight: 650; letter-spacing: -0.01em; margin: 0 0 var(--space-4); }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: var(--space-6); }
+    p { margin: 0 0 var(--space-3); }
+    a { color: var(--accent); }
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.1em 0.35em;
+    }
+
+    /* ---- Top nav: brand mark + section tabs, active tab underlined ---- */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: var(--space-6);
+      padding: 0 var(--space-5);
+      height: 3.25rem;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav__brand {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: var(--text);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .topnav__brand::before {
+      content: "";
+      display: inline-block;
+      width: 0.55em;
+      height: 0.55em;
+      margin-right: 0.5em;
+      border-radius: 3px;
+      background: var(--accent);
+    }
+    .topnav__tabs { display: flex; gap: var(--space-5); height: 100%; }
+    .topnav__tabs a {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+    }
+    .topnav__tabs a:hover { color: var(--text); }
+    .topnav__tabs a[aria-current="page"] {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ---- Buttons ---- */
     button {
       font: inherit;
+      font-weight: 500;
       padding: 0.4rem 0.9rem;
-      border-radius: 6px;
-      border: 1px solid #8888;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text);
       cursor: pointer;
     }
+    button:hover { border-color: var(--accent); color: var(--accent-strong); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:disabled:hover { border-color: var(--border-strong); color: var(--text); }
+
+    /* ---- Form controls (shared across the run console, briefs, pieces,
+       renditions screens -- previously bare browser defaults) ---- */
+    label {
+      display: inline-block;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+    }
+    input[type="text"], input[type="search"], select, textarea {
+      font: inherit;
+      font-family: var(--font-ui);
+      width: 100%;
+      padding: 0.5rem 0.7rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text);
+    }
+    textarea { font-family: var(--font-mono); font-size: 0.85rem; }
+    input[type="text"]:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    input[type="checkbox"] { accent-color: var(--accent); width: 1rem; height: 1rem; vertical-align: middle; }
+
+    .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: var(--space-4); max-width: 28rem; }
+    .field--wide { max-width: none; }
+    .checkbox-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--text-muted); }
+    .checkbox-row label { margin: 0; font-weight: 400; color: var(--text); }
+
+    .error-text { color: var(--danger); font-size: 0.85rem; }
+    .text-muted { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ---- Vertical rhythm for single-column, section-per-card screens
+       (runs, briefs, pieces, renditions, doctor) ---- */
+    .stack > * + * { margin-top: var(--space-5); }
+
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 650;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-faint);
+      margin: 0 0 var(--space-2);
+    }
+
+    /* ---- Cards (shared panel primitive) ---- */
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      padding: var(--space-5);
+    }
+
+    /* ---- Log / console output ---- */
     pre.console {
-      background: #1117;
-      color: #ddd;
-      padding: 1rem;
-      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      background: var(--bg-sunken);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: var(--space-4);
+      border-radius: var(--radius);
       min-height: 8rem;
       max-height: 28rem;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .status { font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 4px; background: #8883; }
-    .status-running { background: #8883; }
-    .status-ok, .status-harvested, .status-complete { background: #2a2; color: #fff; }
-    .status-fail, .status-abandoned, .status-dropped { background: #a22; color: #fff; }
-    .status-gate-blocked { background: #c80; color: #fff; }
+
+    /* ---- Status badges: one shared shape, colored by state family ---- */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.78rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      text-transform: capitalize;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      background: var(--neutral-soft);
+      color: var(--text-muted);
+    }
+    .status-running { background: var(--info-soft); color: var(--info); }
+    .status-ok, .status-harvested, .status-complete,
+    .status-selected, .status-verified, .status-published {
+      background: var(--success-soft); color: var(--success);
+    }
+    .status-fail, .status-abandoned, .status-dropped {
+      background: var(--danger-soft); color: var(--danger);
+    }
+    .status-gate-blocked, .status-candidate { background: var(--warning-soft); color: var(--warning); }
+    .status-active, .status-produced, .status-drafted, .status-edited {
+      background: var(--accent-soft); color: var(--accent-strong);
+    }
+
+    /* ---- Tables ---- */
     table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #8883; }
-    dl.rollup { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; }
-    dl.rollup dt { font-weight: 600; }
-    .empty-state { padding: 1rem; border: 1px dashed #8888; border-radius: 6px; color: #888; }
-    .char-counter { font-weight: 400; color: #888; }
-    .char-counter.over { color: #c33; font-weight: 700; }
+    th {
+      text-align: left;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-faint);
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* ---- Rollup chip rows (status/type -> count breakdowns) ----
+       `dt`/`dd` pairs are two separate flex children (that's what the Jinja
+       templates emit, unchanged), styled to read as one label+count chip. */
+    dl.rollup { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; }
+    dl.rollup dt {
+      margin: 0 -0.55rem 0 0;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    dl.rollup dd {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-weight: 650;
+      font-size: 0.85rem;
+      color: var(--text);
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.2rem 0.6rem;
+    }
+
+    /* ---- Tag chips (project/brief tags) ---- */
+    .tag-chip {
+      display: inline-block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.1rem 0.5rem;
+    }
+
+    /* ---- Stage strip: the pipeline-progress signature used on the
+       dashboard's project cards and the project-detail header. Four
+       segments (Captured -> Harvested -> Briefs -> Pieces) mirror the
+       actual on-disk pipeline stages this GUI reads, not an abstract
+       "progress bar" -- a segment fills in once that stage has produced
+       anything at all, regardless of how far downstream the project has
+       gone since. ---- */
+    .stage-strip { display: flex; align-items: center; }
+    .stage-strip__step { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; min-width: 3.5rem; }
+    .stage-strip__count {
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      font-weight: 650;
+      color: var(--text-faint);
+    }
+    .stage-strip__step.is-filled .stage-strip__count { color: var(--accent-strong); }
+    .stage-strip__label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-faint);
+    }
+    .stage-strip__connector { flex: 1; height: 2px; background: var(--border); margin-bottom: 1.1rem; }
+    .stage-strip__connector.is-filled { background: var(--accent); }
+
+    .empty-state {
+      padding: var(--space-4) var(--space-5);
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius);
+      color: var(--text-muted);
+    }
+    .char-counter { font-weight: 400; color: var(--text-faint); font-family: var(--font-mono); }
+    .char-counter.over { color: var(--danger); font-weight: 700; }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
-  <nav>
-    <a href="/">Dashboard</a>
-    <a href="/runs">Runs</a>
-    <a href="/doctor">Doctor</a>
-  </nav>
-  {% block content %}{% endblock %}
+  <div class="topnav">
+    <a class="topnav__brand" href="/">CONTENT ENGINE</a>
+    <nav class="topnav__tabs">
+      <a href="/" {% if request.url.path == "/" or request.url.path.startswith("/projects/") %}aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/runs" {% if request.url.path.startswith("/runs") %}aria-current="page"{% endif %}>Runs</a>
+      <a href="/doctor" {% if request.url.path.startswith("/doctor") %}aria-current="page"{% endif %}>Doctor</a>
+    </nav>
+  </div>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

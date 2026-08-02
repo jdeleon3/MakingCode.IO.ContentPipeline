@@ -764,6 +764,8 @@ def publish_site(
                 f"would copy {built_plan.hero_source} -> "
                 f"{config.identity.site_repo / built_plan.hero_dest}"
             )
+        for image_source, image_dest in built_plan.body_images:
+            console.out(f"would copy {image_source} -> {config.identity.site_repo / image_dest}")
         console.out("")
         console.out(built_plan.content_text)
         return

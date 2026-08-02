@@ -1,63 +1,123 @@
 {% extends "base.html" %}
 {% block title %}{{ project.title }} - Content Engine{% endblock %}
+{% block head %}
+<style>
+  .detail-header { margin-bottom: var(--space-6); }
+  .detail-header__back { display: inline-block; margin-bottom: var(--space-3); color: var(--text-muted); text-decoration: none; font-size: 0.85rem; }
+  .detail-header__back:hover { color: var(--accent); }
+  .detail-header__title { display: flex; align-items: center; gap: var(--space-3); }
+  .detail-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-faint); font-size: 0.85rem; margin: var(--space-2) 0 var(--space-5); }
+  .detail-header .stage-strip { max-width: 32rem; }
+
+  .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); }
+  .section-grid .card h2 { margin-top: 0; display: flex; align-items: center; justify-content: space-between; font-size: 1rem; }
+  .section-grid .card h2 a { font-size: 0.8rem; font-weight: 500; }
+
+  .piece-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .piece-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--bg-sunken); border-radius: var(--radius-sm); }
+  .piece-list .status { flex-shrink: 0; margin-top: 0.15rem; }
+  .piece-list a { color: var(--text); text-decoration: none; font-weight: 500; }
+  .piece-list a:hover { color: var(--accent); }
+  .piece-list code { background: none; border: none; padding: 0; color: var(--text-faint); }
+</style>
+{% endblock %}
 {% block content %}
-  <p><a href="/">&larr; Dashboard</a></p>
-  <h1>{{ project.title }}</h1>
-  <p>
-    <span class="status status-{{ project.status.value }}">{{ project.status.value }}</span>
-    <code>{{ project.slug }}</code>
-  </p>
-  {% if project.tags %}<p>Tags: {{ project.tags | join(", ") }}</p>{% endif %}
+  <div class="detail-header">
+    <a class="detail-header__back" href="/">&larr; Dashboard</a>
+    <div class="detail-header__title">
+      <h1 style="margin-bottom:0">{{ project.title }}</h1>
+      <span class="status status-{{ project.status.value }}">{{ project.status.value }}</span>
+    </div>
+    <div class="detail-header__meta">
+      <code>{{ project.slug }}</code>
+      {% if project.tags %}
+        <span>&middot;</span>
+        {% for tag in project.tags %}<span class="tag-chip">{{ tag }}</span>{% endfor %}
+      {% endif %}
+    </div>
 
-  <h2>Captures ({{ captures | length }})</h2>
-  {% if not captures %}
-    <p class="empty-state">No captures ingested yet.</p>
-  {% else %}
-    <dl class="rollup">
-      {% for type, count in captures_by_type %}
-        <dt>{{ type }}</dt><dd>{{ count }}</dd>
-      {% endfor %}
-    </dl>
-  {% endif %}
+    <div class="stage-strip">
+      <div class="stage-strip__step {{ 'is-filled' if captures else '' }}">
+        <span class="stage-strip__count">{{ captures | length }}</span>
+        <span class="stage-strip__label">Captured</span>
+      </div>
+      <div class="stage-strip__connector {{ 'is-filled' if harvest.harvested else '' }}"></div>
+      <div class="stage-strip__step {{ 'is-filled' if harvest.harvested else '' }}">
+        <span class="stage-strip__count">{{ '✓' if harvest.harvested else '–' }}</span>
+        <span class="stage-strip__label">Harvested</span>
+      </div>
+      <div class="stage-strip__connector {{ 'is-filled' if briefs else '' }}"></div>
+      <div class="stage-strip__step {{ 'is-filled' if briefs else '' }}">
+        <span class="stage-strip__count">{{ briefs | length }}</span>
+        <span class="stage-strip__label">Briefs</span>
+      </div>
+      <div class="stage-strip__connector {{ 'is-filled' if pieces else '' }}"></div>
+      <div class="stage-strip__step {{ 'is-filled' if pieces else '' }}">
+        <span class="stage-strip__count">{{ pieces | length }}</span>
+        <span class="stage-strip__label">Pieces</span>
+      </div>
+    </div>
+  </div>
 
-  <h2>Harvest</h2>
-  {% if not harvest.harvested %}
-    <p class="empty-state">Not harvested yet. Run <code>ce harvest {{ project.slug }}</code>.</p>
-  {% else %}
-    <dl class="rollup">
-      <dt>git extract</dt><dd>{{ "done" if harvest.git else "pending" }}</dd>
-      <dt>research</dt><dd>{{ "done" if harvest.research else "pending" }}</dd>
-      <dt>inventory</dt><dd>{{ "done" if harvest.inventory else "pending" }}</dd>
-    </dl>
-  {% endif %}
+  <div class="section-grid">
+    <div class="card">
+      <h2>Captures ({{ captures | length }})</h2>
+      {% if not captures %}
+        <p class="empty-state">No captures ingested yet.</p>
+      {% else %}
+        <dl class="rollup">
+          {% for type, count in captures_by_type %}
+            <dt>{{ type }}</dt><dd>{{ count }}</dd>
+          {% endfor %}
+        </dl>
+      {% endif %}
+    </div>
 
-  <h2>Briefs ({{ briefs | length }}) <a href="/projects/{{ project.slug }}/briefs">review &rarr;</a></h2>
-  {% if not briefs %}
-    <p class="empty-state">No briefs yet.</p>
-  {% else %}
-    <dl class="rollup">
-      {% for status, count in briefs_by_status %}
-        <dt>{{ status }}</dt><dd>{{ count }}</dd>
-      {% endfor %}
-    </dl>
-  {% endif %}
+    <div class="card">
+      <h2>Harvest</h2>
+      {% if not harvest.harvested %}
+        <p class="empty-state">Not harvested yet. Run <code>ce harvest {{ project.slug }}</code>.</p>
+      {% else %}
+        <dl class="rollup">
+          <dt>git extract</dt><dd>{{ "done" if harvest.git else "pending" }}</dd>
+          <dt>research</dt><dd>{{ "done" if harvest.research else "pending" }}</dd>
+          <dt>inventory</dt><dd>{{ "done" if harvest.inventory else "pending" }}</dd>
+        </dl>
+      {% endif %}
+    </div>
 
-  <h2>Pieces ({{ pieces | length }})</h2>
-  {% if not pieces %}
-    <p class="empty-state">No pieces selected yet.</p>
-  {% else %}
-    <dl class="rollup">
-      {% for status, count in pieces_by_status %}
-        <dt>{{ status }}</dt><dd>{{ count }}</dd>
-      {% endfor %}
-    </dl>
-    <ul>
-      {% for piece in pieces %}
-        <li>
-          <a href="/pieces/{{ piece.id }}">{{ piece.id }}</a> -- {{ piece.slug }}
-          <span class="status status-{{ piece.status.value }}">{{ piece.status.value }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+    <div class="card">
+      <h2>Briefs ({{ briefs | length }}) <a href="/projects/{{ project.slug }}/briefs">review &rarr;</a></h2>
+      {% if not briefs %}
+        <p class="empty-state">No briefs yet.</p>
+      {% else %}
+        <dl class="rollup">
+          {% for status, count in briefs_by_status %}
+            <dt>{{ status }}</dt><dd>{{ count }}</dd>
+          {% endfor %}
+        </dl>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Pieces ({{ pieces | length }})</h2>
+      {% if not pieces %}
+        <p class="empty-state">No pieces selected yet.</p>
+      {% else %}
+        <dl class="rollup">
+          {% for status, count in pieces_by_status %}
+            <dt>{{ status }}</dt><dd>{{ count }}</dd>
+          {% endfor %}
+        </dl>
+        <ul class="piece-list">
+          {% for piece in pieces %}
+            <li>
+              <a href="/pieces/{{ piece.id }}">{{ piece.id }} <code>{{ piece.slug }}</code></a>
+              <span class="status status-{{ piece.status.value }}">{{ piece.status.value }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
 {% endblock %}

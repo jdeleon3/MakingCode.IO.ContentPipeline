@@ -1,0 +1,69 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0a0b0d",
+    "primaryColor": "#15171b",
+    "primaryTextColor": "#ece7dd",
+    "primaryBorderColor": "#26282d",
+    "secondaryColor": "#15171b",
+    "tertiaryColor": "#15171b",
+    "lineColor": "#8d8d86",
+    "fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TD
+    start(["ce harvest &lt;project&gt;"])
+
+    subgraph gitx [" Git extract — harvest/git.py "]
+        direction TB
+        g1{"G1: repo allow-listed?"}
+        gitlog["<span style='font-family: IBM Plex Mono, monospace; font-size:11px'>git log --numstat</span><br/><span style='font-size:11px'>stats only, never diffs</span>"]
+        g2{"G2: gitleaks scan clean?"}
+        summarize["<b>Summarize commits</b><br/><span style='font-size:11px'>commit_summarize, per significant commit</span>"]
+        g1 --> gitlog --> g2 --> summarize
+    end
+
+    start --> gitx
+
+    g1blocked["GateBlocked — G1<br/><span style='font-size:11px'>repo not in config.repos.allowed</span>"]
+    g2blocked["GateBlocked — G2<br/><span style='font-size:11px'>gitleaks found a secret</span>"]
+    g1 -- no --> g1blocked
+    g2 -- no --> g2blocked
+
+    audio["<b>Transcribe pending audio</b><br/><span style='font-size:11px'>ffmpeg + Whisper + transcript_clean</span>"]
+    research["<b>Research pass</b><br/><span style='font-size:11px'>search + fetch + research_stance — skippable</span>"]
+
+    summarize --> audio --> research
+
+    subgraph inv [" Generate briefs — harvest/inventory.py (MATCH) "]
+        direction TB
+        gen["<b>brief_generate</b><br/><span style='font-size:11px'>reasoning-tier LLM call</span>"]
+        resolve{"citations resolvable?"}
+        retry["retry once with feedback"]
+        g3["<b>G3: dedupe vs recent pieces</b><br/><span style='font-size:11px'>embedding similarity</span>"]
+        gen --> resolve
+        resolve -- "no, 1st time" --> retry --> gen
+        resolve -- yes --> g3
+    end
+
+    research --> inv
+
+    abort["InventoryError<br/><span style='font-size:11px'>known bug: crashes on some video_walkthrough briefs</span>"]
+    resolve -. "no, 2nd time" .-> abort
+
+    out(["briefs.yml + inventory.md"])
+    g3 --> out
+
+    classDef auto fill:#15171b,stroke:#26282d,color:#ece7dd;
+    classDef decision fill:#15171b,stroke:#259ae8,color:#ece7dd;
+    classDef final fill:#165c8b,stroke:#259ae8,color:#ece7dd;
+    classDef warn fill:#b7791f1a,stroke:#b7791f,color:#ece7dd;
+
+    class gitlog,summarize,audio,research,gen,retry,g3 auto;
+    class g1,g2,resolve decision;
+    class out final;
+    class g1blocked,g2blocked,abort warn;
+
+    style gitx fill:none,stroke:#165c8b,stroke-width:1.5px,stroke-dasharray: 5 5;
+    style inv fill:none,stroke:#165c8b,stroke-width:1.5px,stroke-dasharray: 5 5;

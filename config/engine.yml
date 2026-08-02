@@ -86,8 +86,8 @@ utm:
 analytics: # EDIT THIS — self-hosted Umami instance tracking identity.site_url.
   # UMAMI_API_KEY is the actual secret (environment variable, never here).
   umami:
-    api_url: https://umami.example.com
-    website_id: 00000000-0000-0000-0000-000000000000
+    api_url: https://analytics.makingcode.io
+    website_id: 07583853-2f85-4dbc-8927-4ad4b2fecebf
 
 sweep: # EDIT THIS — this operator's own demand-signal watch-list. Matched
   # case-insensitively as a substring against HN/RSS story titles; no API
