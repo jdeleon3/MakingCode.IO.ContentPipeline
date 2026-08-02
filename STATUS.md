@@ -84,6 +84,19 @@ WP-17–WP-21.
 
 ## Deviations from the TDD
 
+- **2026-08-01, `gui/templates/pieces.html` + `gui/routes/assets.py` (follow-up
+  to the 2026-07-29 asset-staging entry below) · `stage-text` paste-to-create
+  is now wired into the Diagrams section too, not just Evidence.** Closes the
+  gap that entry's own text flagged ("flagged as a likely next ask rather
+  than built speculatively for `diagram` now") — the backend route was
+  already kind-parameterized and needed no change. `pieces.html`'s Diagrams
+  section gained a filename + textarea + "Save diagram" control mirroring
+  Evidence's existing one, wired to the same generic `POST
+  .../assets/stage-text/<kind>` endpoint. New tests in
+  `tests/test_gui_assets.py` cover a pasted `.mmd` diagram round-tripping
+  identically to an uploaded one, and the extension allow-list rejecting a
+  non-`.mmd` paste. Full suite and `ruff check` both green.
+
 - **2026-07-29, `gui/routes/assets.py` (new, post-WP-22) · the GUI can now
   stage `ce assets`' four hand-placed inputs (hero image, thumbnail
   background, evidence snippets, Mermaid diagrams) through the browser, on
@@ -117,6 +130,7 @@ WP-17–WP-21.
   `diagram` too, since a `.mmd` file is equally hand-typed text) but only
   wired into the `evidence` section of `pieces.html` in this pass — flagged
   as a likely next ask rather than built speculatively for `diagram` now.
+  **Wired into `diagram` too as of 2026-08-01, see that entry above.**
 
 - **2026-07-29, `assets/thumbnail.py` (post-WP-11) · thumbnails now support
   an optional brand-logo watermark, auto-detected from `config/brand-logo.<ext>`.**

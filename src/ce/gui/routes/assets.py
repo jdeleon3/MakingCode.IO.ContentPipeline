@@ -132,8 +132,8 @@ class _StageText(BaseModel):
 @router.post("/pieces/{piece_id}/assets/stage-text/{kind}")
 def stage_text_asset(piece_id: str, kind: str, body: _StageText) -> dict[str, str]:
     """Paste-to-create: a filename + textarea instead of an existing file on
-    disk. Only wired into the `evidence` sub-block of `pieces.html` today,
-    but works for any kind -- see the module docstring."""
+    disk. Wired into both the `evidence` and `diagram` sub-blocks of
+    `pieces.html` -- see the module docstring."""
     spec = _get_kind_spec(kind)
     data_root = Path("data")
     project, piece = find_piece_or_404(data_root, piece_id)

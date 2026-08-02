@@ -183,6 +183,17 @@
     <input type="file" id="diagram-file" accept=".mmd">
     <button class="stage-btn" data-kind="diagram" data-input="diagram-file">Upload</button>
   </p>
+  <p>or paste Mermaid source directly:</p>
+  <p>
+    <input type="text" id="diagram-paste-filename" placeholder="filename, e.g. flow.mmd" style="width: 240px;">
+  </p>
+  <p>
+    <textarea id="diagram-paste-content" rows="8" style="width:100%; font-family: monospace;"
+      placeholder="paste the Mermaid source here"></textarea>
+  </p>
+  <p>
+    <button id="diagram-paste-btn">Save diagram</button>
+  </p>
   <p><span id="stage-error" style="color: #c33;"></span></p>
 
   <script>
@@ -299,6 +310,24 @@
       }
       handleStageResponse(
         fetch(`/pieces/{{ piece.id }}/assets/stage-text/evidence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename, content }),
+        })
+      );
+    });
+
+    const diagramPasteBtn = document.getElementById("diagram-paste-btn");
+    diagramPasteBtn.addEventListener("click", () => {
+      stageErrorEl.textContent = "";
+      const filename = document.getElementById("diagram-paste-filename").value.trim();
+      const content = document.getElementById("diagram-paste-content").value;
+      if (!filename) {
+        stageErrorEl.textContent = "give the diagram a filename first";
+        return;
+      }
+      handleStageResponse(
+        fetch(`/pieces/{{ piece.id }}/assets/stage-text/diagram`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ filename, content }),

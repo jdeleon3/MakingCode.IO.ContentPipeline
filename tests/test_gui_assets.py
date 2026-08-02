@@ -174,6 +174,35 @@ def test_stage_text_and_upload_coexist_in_the_evidence_listing(client, piece):
 
 
 # ---------------------------------------------------------------------------
+# stage-text (paste-to-create, diagram)
+# ---------------------------------------------------------------------------
+
+
+def test_stage_text_writes_a_pasted_diagram_identically_to_an_upload(client, piece):
+    resp = client.post(
+        f"/pieces/{piece}/assets/stage-text/diagram",
+        json={"filename": "flow.mmd", "content": "flowchart TD\n  A --> B\n"},
+    )
+
+    assert resp.status_code == 200
+    written = _piece_dir() / "assets" / "diagrams" / "flow.mmd"
+    assert written.read_text(encoding="utf-8") == "flowchart TD\n  A --> B\n"
+
+    page = client.get(f"/pieces/{piece}")
+    assert "flow.mmd" in page.text
+
+
+def test_stage_text_enforces_the_diagram_extension(client, piece):
+    resp = client.post(
+        f"/pieces/{piece}/assets/stage-text/diagram",
+        json={"filename": "flow.txt", "content": "flowchart TD\n  A --> B\n"},
+    )
+
+    assert resp.status_code == 400
+    assert not (_piece_dir() / "assets" / "diagrams" / "flow.txt").exists()
+
+
+# ---------------------------------------------------------------------------
 # unstage
 # ---------------------------------------------------------------------------
 
