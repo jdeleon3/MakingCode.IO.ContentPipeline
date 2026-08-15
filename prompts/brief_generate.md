@@ -1,6 +1,6 @@
 ---
 id: brief_generate
-version: 1
+version: 2
 tier: reasoning
 output_schema: _schemas/briefs.schema.json
 inputs: [brand_brief, project_context, git_context, captures_context, friction, research_context, demand_context, recent_published_context, archetypes, retry_feedback]
@@ -15,6 +15,37 @@ Attempt at least one brief per archetype that genuinely applies to this
 project's material — do not force an archetype that has no real evidence
 behind it. Archetypes:
 {{ archetypes }}
+
+Every brief object MUST have exactly these top-level fields, no others —
+`archetype`, `title`, `angle`, `target_platforms`, `demand`, `evidence`,
+`grounding_strength`, `weakest_point`, `risk_flags`. This applies to every
+archetype, including `video_walkthrough`: it does not get a different shape
+just because it's for video. Do not invent fields like `one_line`,
+`audience_promise`, `outline`, or `cta` — the plan/outline for *how* to
+make the video belongs inside `angle`, not a separate field, and `evidence`
+entries always use `kind`/`ref`/`note`/`quote`, never `supports`.
+
+A correctly-shaped `video_walkthrough` example (values illustrative only —
+use this project's own real evidence, not this text):
+
+```json
+{
+  "archetype": "video_walkthrough",
+  "title": "Screen recording: one project, capture to REVIEW.html",
+  "angle": "Show the actual clicks and the actual waiting in real time, in
+    this order: pick a project, run harvest, review a brief, draft/grade/
+    verify, stage assets, render, land on REVIEW.html. Name the manual step
+    out loud: I press post, not the machine.",
+  "target_platforms": ["youtube", "site"],
+  "demand": {"recurrence": 0, "signals": []},
+  "evidence": [
+    {"kind": "capture", "ref": "cap-20260728-054157", "note": "Screencast captured in situ during a pipeline run.", "quote": null}
+  ],
+  "grounding_strength": "weak",
+  "weakest_point": "The existing screencast has no recorded narration, so a real walkthrough would need to be re-recorded.",
+  "risk_flags": []
+}
+```
 
 **Hard constraints — violating any of these makes your output unusable:**
 

@@ -31,7 +31,13 @@ class MermaidCliRenderer:
     """Shells out to `mmdc` (mermaid-cli) with a transparent background."""
 
     def render(self, mermaid_source: str, output_path: Path, *, width: int = DEFAULT_WIDTH) -> None:
-        if shutil.which("mmdc") is None:
+        # Resolve to a full path (not just check-and-discard): on Windows
+        # shutil.which("mmdc") resolves the PATHEXT shim mmdc.CMD, but
+        # subprocess.run(["mmdc", ...]) with the bare name fails with
+        # WinError 2 -- CreateProcess doesn't apply PATHEXT resolution
+        # itself without a shell, so the resolved path must be reused below.
+        exe = shutil.which("mmdc")
+        if exe is None:
             raise AssetError(
                 "mermaid-cli (mmdc) is not on PATH",
                 hint="npm install -g @mermaid-js/mermaid-cli, then `ce doctor`",
@@ -45,7 +51,7 @@ class MermaidCliRenderer:
         try:
             proc = subprocess.run(
                 [
-                    "mmdc",
+                    exe,
                     "-i",
                     str(source_path),
                     "-o",

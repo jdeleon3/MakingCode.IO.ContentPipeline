@@ -308,10 +308,31 @@ def test_gemini_grounded_search_parses_grounding_chunks():
 
     assert [r.url for r in results] == ["https://a.example.com/1", "https://b.example.com/1"]
     assert [r.title for r in results] == ["A", "B"]
-    assert models.captured["contents"] == "DuckDB vs Spark"
+    # The raw query is wrapped in an explicit "search the web" instruction
+    # (not sent verbatim) -- see GeminiGroundedSearchClient._SEARCH_INSTRUCTION:
+    # a bare declarative query reads as a normal chat turn and the model
+    # answers from its own knowledge without invoking the grounding tool at
+    # all, confirmed live against the real API.
+    assert "DuckDB vs Spark" in models.captured["contents"]
+    assert models.captured["contents"] != "DuckDB vs Spark"
     assert models.captured["model"] == "gemini-3.5-flash"
     tool = models.captured["config"].tools[0]
     assert isinstance(tool.google_search, research_module.genai_types.GoogleSearch)
+
+
+def test_gemini_search_instructs_the_model_to_actually_search():
+    """The wrapping instruction is what makes the difference (confirmed live:
+    a bare declarative query gets zero grounding chunks, the same query
+    wrapped in this instruction gets real ones) -- assert the instruction
+    text survives, not just that *some* wrapping happened."""
+    models = _FakeGenaiModels(response=_gemini_response([]))
+    client = research_module.GeminiGroundedSearchClient(api_key="test-key")
+    client._get_client = lambda: SimpleNamespace(models=models)
+
+    client.search("a declarative topic sentence", max_results=5)
+
+    assert "search the web" in models.captured["contents"].lower()
+    assert "do not just answer from your own knowledge" in models.captured["contents"].lower()
 
 
 def test_gemini_respects_max_results():

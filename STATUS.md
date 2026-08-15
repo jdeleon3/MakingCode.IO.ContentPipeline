@@ -58,11 +58,12 @@ WP-17–WP-21.
 
 ---
 
-## Known bugs (not yet fixed)
+## Known bugs
 
-- **`ce harvest`'s `brief_generate` step can crash on schema validation for a
-  `video_walkthrough`-archetype candidate missing `target_platforms`, even
-  after the one built-in repair retry — aborting the whole harvest run
+- **[Root-caused, fix written 2026-08-14, pending live-run confirmation]
+  `ce harvest`'s `brief_generate` step could crash on schema validation for
+  a `video_walkthrough`-archetype candidate missing `target_platforms`,
+  even after the one built-in repair retry — aborting the whole harvest run
   before `briefs.yml`/`inventory.md` are written.** Reproduced twice in a
   row against `content-engine`'s own project
   (`data/runs/20260729T004757889194-harvest-content-engine.log`,
@@ -74,15 +75,42 @@ WP-17–WP-21.
   (`gateway.py:297`) before ever calling `store.write_briefs()` — so no
   existing brief/piece reference gets corrupted by a failed run, but new
   captures since the last successful harvest never make it into a brief.
-  Not yet root-caused — needs a look at whether the `brief_generate`
-  prompt/schema interaction systematically under-specifies
-  `target_platforms` for video-walkthrough-shaped ideas, or if this is a
-  one-off model flake. Deferred; revisit before relying on `ce harvest`
-  again for this project.
+  **Root cause**: `prompts/_schemas/briefs.schema.json` requires
+  `target_platforms` (`minItems: 1`) and sets `additionalProperties: false`
+  on every brief object, but nothing in `prompts/brief_generate.md` v1 told
+  the model that `video_walkthrough` briefs follow the *same* flat shape as
+  every other archetype — the model was inventing video-specific fields
+  (`one_line`, `audience_promise`, `outline`, `cta`) instead, which the
+  schema's `additionalProperties: false` rejects, and correspondingly
+  dropping `target_platforms`. Fixed by bumping `brief_generate` to prompt
+  version 2: an explicit "every archetype uses exactly these fields, video
+  included" constraint plus one fully-shaped `video_walkthrough` example.
+  Found and fixed in an earlier, uncommitted session alongside a second,
+  unrelated fix to `GeminiGroundedSearchClient` (a bare declarative query
+  was answered from the model's own knowledge instead of triggering the
+  search tool — fixed by wrapping the query in an explicit
+  "search the web" instruction). Both changes have full suite + `ruff`
+  green; not yet exercised against a real `ce harvest` run since the fix.
 
 ---
 
 ## Deviations from the TDD
+
+- **2026-08-14, `src/ce/doctor.py` + `src/ce/assets/diagram.py` (bug fix) ·
+  mermaid-cli was unusable on Windows even when installed and on PATH.**
+  Found while bringing this dev machine back up after a break: `npm install
+  -g @mermaid-js/mermaid-cli` installs `mmdc.CMD` (a PATHEXT shim, not
+  `mmdc.exe`); both call sites did `shutil.which("mmdc")` to *check*
+  existence but then ran the literal string `"mmdc"` via
+  `subprocess.run([...], ...)` with no shell — Windows' `CreateProcess`
+  doesn't apply PATHEXT resolution itself without a shell, so this failed
+  with `WinError 2` even though `which()` had just proven the shim exists.
+  Fixed both call sites (`doctor.py::_run_version`,
+  `assets/diagram.py::MermaidCliRenderer.render`) to reuse the path
+  `shutil.which` already resolved, instead of re-running the bare command
+  name. Confirmed live: `ce doctor` now reports mermaid-cli OK, and a real
+  `mmdc` invocation renders a `.mmd` file to `.png` successfully. Full
+  suite + `ruff check` green after the fix.
 
 - **2026-08-01, `gui/templates/pieces.html` + `gui/routes/assets.py` (follow-up
   to the 2026-07-29 asset-staging entry below) · `stage-text` paste-to-create

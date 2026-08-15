@@ -64,7 +64,11 @@ def _run_version(cmd: list[str]) -> CheckResult:
         return CheckResult(False, "not on PATH")
     try:
         proc = subprocess.run(  # noqa: S603
-            cmd,
+            # shutil.which resolves PATHEXT shims (e.g. mmdc.CMD on Windows)
+            # to a full path; re-running the bare cmd[0] name instead would
+            # fail with WinError 2 since CreateProcess doesn't apply PATHEXT
+            # resolution itself without a shell.
+            [exe, *cmd[1:]],
             capture_output=True,
             text=True,
             timeout=15,

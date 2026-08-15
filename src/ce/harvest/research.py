@@ -165,12 +165,32 @@ class GeminiGroundedSearchClient:
             )
         return self._client
 
+    # Gemini's grounding tool is invoked at the model's own discretion, not
+    # forced by merely being attached -- a query handed over as a bare
+    # declarative sentence (e.g. this project's own hypothesis paragraph,
+    # "this is a content engine that...") reads to the model as a normal
+    # chat turn, and it answers conversationally from its own knowledge
+    # without searching at all, silently producing zero grounding chunks
+    # (confirmed live against this project's real query and API key: bare
+    # `contents=query` returned `grounding_metadata is None`). Wrapping the
+    # query in an explicit "search the web" instruction reliably triggers
+    # the tool instead -- confirmed live to return real citations for both
+    # a declarative-sentence query and an already keyword-style one, so this
+    # wrapping is safe to apply unconditionally rather than only when the
+    # query "looks like" a topic sentence.
+    _SEARCH_INSTRUCTION = (
+        "Search the web for articles, discussions, and sources relevant to "
+        "the following topic, so the results can ground a piece of writing "
+        "about it in outside context. Actually use the search tool -- do "
+        "not just answer from your own knowledge.\n\n{query}"
+    )
+
     def search(self, query: str, *, max_results: int) -> list[SearchResult]:
         client = self._get_client()
         try:
             response = client.models.generate_content(
                 model=self._model,
-                contents=query,
+                contents=self._SEARCH_INSTRUCTION.format(query=query),
                 config=genai_types.GenerateContentConfig(
                     tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())]
                 ),
