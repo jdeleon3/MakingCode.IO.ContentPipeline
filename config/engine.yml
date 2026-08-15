@@ -18,6 +18,9 @@ repos: # EDIT THIS — G1's allowlist. Anything not listed here is
     - name: Content Engine
       path: C:\Projects\MakingCode.IO.ContentPipeline
       publishable: full # full | lessons-only      
+    - name: PalIntel
+      path: C:\Projects\Projects.PalIntel
+      publishable: full
 
 llm:
   provider: anthropic
