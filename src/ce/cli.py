@@ -228,6 +228,33 @@ def capture_screen(
     console.success(f"captured {captured.id} ({captured.type.value})")
 
 
+@capture_app.command("note")
+def capture_note(
+    file: Path = typer.Argument(..., help="Pre-written text file (e.g. a retrospective note)."),
+    project: str = typer.Option(..., "--project", "-p", help="Project slug."),
+    moment: str = typer.Option(
+        "retro", "--moment", help="in_situ|retro — when the note was actually written."
+    ),
+    context: str | None = typer.Option(None, "--context"),
+) -> None:
+    """Ingest a pre-written text file (journal/retrospective note), expanded
+    into brief-generation context in full, the same treatment an audio
+    transcript gets — unlike `capture friction`, which is for a one-line
+    in-the-moment jot, not a standing note kept outside this tool."""
+    from ce.capture import ingest as capture_ingest
+    from ce.models import CaptureMoment
+
+    try:
+        moment_enum = CaptureMoment(moment)
+    except ValueError:
+        raise CEError(f"unknown --moment {moment!r}, expected in_situ|retro") from None
+
+    captured = capture_ingest.ingest_note(
+        Path("data"), file, project, moment=moment_enum, context=context
+    )
+    console.success(f"captured {captured.id} ({captured.type.value}, {captured.moment.value})")
+
+
 @capture_app.command("friction")
 def capture_friction(
     note: str = typer.Argument(..., help="One line, written the moment something surprised you."),

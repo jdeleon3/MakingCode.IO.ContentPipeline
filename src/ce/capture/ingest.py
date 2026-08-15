@@ -12,7 +12,7 @@ from pathlib import Path
 from ce import store
 from ce.capture import BatchOutcome
 from ce.exit_codes import CaptureError, CEError
-from ce.models import Capture, CaptureMoment, CaptureType
+from ce.models import Capture, CaptureDerived, CaptureMoment, CaptureType
 
 # TDD doesn't specify how `ce capture screen` tells a screenshot from a
 # screencast — classifying by extension is the obvious rule and keeps the
@@ -101,6 +101,47 @@ def append_friction(
         captured_at=captured_at,
         source_path=friction_path.relative_to(project_root),
         context=note,
+    )
+    store.write_capture(data_root, capture)
+    return capture
+
+
+def ingest_note(
+    data_root: Path,
+    path: Path,
+    project: str,
+    *,
+    moment: CaptureMoment = CaptureMoment.RETRO,
+    context: str | None = None,
+    captured_at: datetime | None = None,
+) -> Capture:
+    """`ce capture note`. Ingests a pre-written text file whole (copied
+    verbatim into `captures/notes/`), with `derived.transcript_clean`
+    pointing at the copy so `harvest/inventory.py::_format_captures_context`
+    expands it fully into brief-generation context, the same treatment an
+    audio capture's transcript already gets — see CaptureType.NOTE's own
+    docstring for why neither FRICTION nor a bare `context` string fits."""
+    if not path.exists():
+        raise CaptureError(f"file not found: {path}")
+
+    captured_at = captured_at or datetime.now(UTC)
+    capture_id = store.generate_capture_id(data_root, project, captured_at)
+
+    project_root = store.project_dir(data_root, project)
+    dest_dir = project_root / "captures" / "notes"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{capture_id}{path.suffix or '.md'}"
+    shutil.copy2(path, dest)
+
+    capture = Capture(
+        id=capture_id,
+        project=project,
+        type=CaptureType.NOTE,
+        moment=moment,
+        captured_at=captured_at,
+        source_path=dest.relative_to(project_root),
+        derived=CaptureDerived(transcript_clean=dest.relative_to(project_root)),
+        context=context,
     )
     store.write_capture(data_root, capture)
     return capture

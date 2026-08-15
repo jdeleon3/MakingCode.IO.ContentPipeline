@@ -469,6 +469,34 @@ def test_full_repo_includes_name_and_stats():
 
 
 # ---------------------------------------------------------------------------
+# NOTE captures — expanded in full, like an audio transcript
+# ---------------------------------------------------------------------------
+
+
+def test_note_capture_expands_full_text_into_captures_context(tmp_path):
+    project_root = store.project_dir(tmp_path, "test-proj")
+    note_path = project_root / "captures" / "notes" / "cap-note.md"
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text("# Retrospective\n\nThe router misfired on ambiguous names.")
+
+    capture = Capture(
+        id="cap-note",
+        project="test-proj",
+        type=CaptureType.NOTE,
+        moment=CaptureMoment.RETRO,
+        captured_at=NOW,
+        source_path=Path("captures/notes/cap-note.md"),
+        derived={"transcript_clean": Path("captures/notes/cap-note.md")},
+        context="first-week retrospective",
+    )
+
+    context = inventory._format_captures_context(tmp_path, _project(), [capture])
+
+    assert "The router misfired on ambiguous names." in context
+    assert "note, retro" in context
+
+
+# ---------------------------------------------------------------------------
 # inventory.md — readable + ranked
 # ---------------------------------------------------------------------------
 

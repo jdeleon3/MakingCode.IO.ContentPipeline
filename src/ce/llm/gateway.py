@@ -60,6 +60,21 @@ DEFAULT_MAX_TOKENS = 8192
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
+def _strip_code_fence(content: str) -> str:
+    """Every schema-validated prompt in this codebase funnels through this
+    one `json.loads` call (`Gateway._try_validate`) -- models occasionally
+    wrap an otherwise-correct JSON response in a ```/```json markdown fence
+    despite being told "JSON only, no other text", which previously failed
+    parsing at char 0 (the backtick) with no retry. Stripped here rather
+    than fixed per-prompt so every schema call gets the tolerance at once.
+    """
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").strip()
+        text = text.removesuffix("```").strip()
+    return text
+
+
 def estimate_usd(model: str, in_tokens: int, out_tokens: int) -> float:
     try:
         in_rate, out_rate = PRICING_PER_MILLION[model]
@@ -210,10 +225,18 @@ class Gateway:
     @staticmethod
     def _try_validate(schema: dict[str, Any], content: str) -> tuple[Any | None, str | None]:
         try:
-            parsed = json.loads(content)
+            parsed = json.loads(_strip_code_fence(content))
             jsonschema.validate(parsed, schema)
         except (json.JSONDecodeError, jsonschema.ValidationError) as exc:
-            return None, str(exc)
+            # Include a snippet of what the model actually returned -- the
+            # bare jsonschema/JSONDecodeError text alone (e.g. "Expecting
+            # value: line 1 column 1 (char 0)") is identical whether the
+            # model returned nothing at all or something non-empty that
+            # merely failed to parse, which made a real failure
+            # (research_stance against a live harvest) undiagnosable after
+            # the fact since `content` itself was never surfaced anywhere.
+            snippet = content[:300] + ("..." if len(content) > 300 else "")
+            return None, f"{exc} | raw response: {snippet!r}"
         return parsed, None
 
     def complete(

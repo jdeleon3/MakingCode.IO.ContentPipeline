@@ -120,6 +120,31 @@ def test_ingest_screen_batch_empty_folder_is_empty_outcome(tmp_path):
     assert outcome.failed == []
 
 
+# --- ingest_note ------------------------------------------------------------
+
+
+def test_ingest_note_copies_the_file_and_records_a_capture(tmp_path):
+    src = _touch(tmp_path / "retro.md", b"# Retrospective\n\nWhat went well.")
+    captured = ingest.ingest_note(tmp_path, src, "test-proj")
+
+    assert captured.type == CaptureType.NOTE
+    assert captured.moment == CaptureMoment.RETRO  # default: a note is written after the fact
+    dest = store.project_dir(tmp_path, "test-proj") / captured.derived.transcript_clean
+    assert dest.read_text(encoding="utf-8") == "# Retrospective\n\nWhat went well."
+    assert store.read_capture(tmp_path, "test-proj", captured.id) == captured
+
+
+def test_ingest_note_accepts_an_explicit_moment(tmp_path):
+    src = _touch(tmp_path / "jot.md", b"quick in-the-moment thought")
+    captured = ingest.ingest_note(tmp_path, src, "test-proj", moment=CaptureMoment.IN_SITU)
+    assert captured.moment == CaptureMoment.IN_SITU
+
+
+def test_ingest_note_missing_file_is_a_readable_error(tmp_path):
+    with pytest.raises(CaptureError, match="not found"):
+        ingest.ingest_note(tmp_path, tmp_path / "nope.md", "test-proj")
+
+
 # --- append_friction ------------------------------------------------------------
 
 

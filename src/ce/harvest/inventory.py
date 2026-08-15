@@ -130,6 +130,10 @@ def _format_captures_context(data_root: Path, project: Project, captures: list[C
                 clean_path = project_root / c.derived.transcript_clean
                 clean = clean_path.read_text(encoding="utf-8") if clean_path.exists() else ""
             blocks.append(f"{header}\n{context_line}\n  RAW: {raw}\n  CLEAN: {clean}")
+        elif c.type == CaptureType.NOTE and c.derived is not None and c.derived.transcript_clean:
+            note_path = project_root / c.derived.transcript_clean
+            text = note_path.read_text(encoding="utf-8") if note_path.exists() else ""
+            blocks.append(f"{header}\n{context_line}\n  TEXT: {text}")
         else:
             blocks.append(f"{header}\n{context_line}")
     return "\n\n".join(blocks) if blocks else "(no captures yet)"

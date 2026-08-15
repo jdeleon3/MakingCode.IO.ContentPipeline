@@ -46,6 +46,12 @@ class CaptureType(StrEnum):
     SCREENSHOT = "screenshot"
     SCREENCAST = "screencast"
     FRICTION = "friction"
+    # A pre-written text reflection (e.g. a journal/retrospective note kept
+    # outside this tool) ingested whole, expanded into captures_context in
+    # full the same way an audio transcript is -- not a fit for FRICTION's
+    # one-line in-the-moment jots or its "Friction log" framing, since this
+    # kind of note isn't necessarily about what went wrong.
+    NOTE = "note"
 
 
 class CaptureMoment(StrEnum):
@@ -154,7 +160,10 @@ class Project(BaseModel):
 
 
 class CaptureDerived(BaseModel):
-    """Only audio captures populate transcript fields; others leave them unset."""
+    """Audio captures populate both transcript fields; NOTE captures populate
+    only `transcript_clean` (the note's own text, verbatim -- there's no
+    separate "raw" pass for a note the way there is for ASR output). Every
+    other type leaves both unset."""
 
     transcript_raw: Path | None = None
     transcript_clean: Path | None = None
